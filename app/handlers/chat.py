@@ -49,11 +49,9 @@ async def start_chat_mode(callback: CallbackQuery = None, message: Message = Non
     
     await state.set_state(ChatStates.chatting)
     
-    # Exit button
-    keyboard = create_keyboard(
-        buttons=[(ru.BTN_CANCEL, "chat_exit")],
-        rows_per_row=1,
-    )
+    # No buttons - clean chat interface
+    # Users can use /start to exit
+    keyboard = None
     
     text = f"{ru.CHAT_MODE_TITLE}\n\n{ru.CHAT_MODE_TEXT}"
     
@@ -148,11 +146,8 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
         # Prepare response text
         response_text = f"🤖 *Ответ:*\n\n{response}"
         
-        # Create continue button
-        keyboard = create_keyboard(
-            buttons=[(ru.BTN_CANCEL, "chat_exit")],
-            rows_per_row=1,
-        )
+        # No buttons - clean interface
+        keyboard = None
         
         # Update menu
         if menu_message_id:
@@ -188,10 +183,8 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
         logger.error(f"Chat error: {e}")
         error_text = f"{ru.CHAT_ERROR}\n\n{str(e)[:100]}"
         
-        keyboard = create_keyboard(
-            buttons=[(ru.BTN_CANCEL, "chat_exit")],
-            rows_per_row=1,
-        )
+        # No buttons
+        keyboard = None
         
         if menu_message_id:
             try:
