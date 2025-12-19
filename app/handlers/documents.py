@@ -1,6 +1,7 @@
 """Document handlers for file uploads and processing.
 
 Handles file uploads, processing, and analysis responses.
+Supports multiple LLM providers with fallback.
 """
 
 import logging
@@ -15,7 +16,7 @@ from aiogram.fsm.context import FSMContext
 from app.config import get_settings
 from app.states.analysis import DocumentAnalysisStates
 from app.services.file_processing.converter import FileConverter
-from app.services.llm.openai_client import OpenAIClient
+from app.services.llm.llm_factory import LLMFactory
 from app.utils.text_splitter import TextSplitter
 from app.utils.cleanup import CleanupManager
 
@@ -23,6 +24,15 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 config = get_settings()
+
+# Initialize LLM factory
+llm_factory = LLMFactory(
+    primary_provider=config.LLM_PROVIDER,
+    openai_api_key=config.OPENAI_API_KEY or None,
+    openai_model=config.OPENAI_MODEL,
+    replicate_api_token=config.REPLICATE_API_TOKEN or None,
+    replicate_model=config.REPLICATE_MODEL,
+)
 
 
 @router.message(F.document)
@@ -118,18 +128,50 @@ async def handle_document(
         # Analyze with AI
         await processing_msg.edit_text(
             "🔍 Processing your document...\n"
-            "🤖 Analyzing with AI..."
+            f"🤖 Analyzing with {config.LLM_PROVIDER} AI..."
         )
         
-        client = OpenAIClient(
-            api_key=config.OPENAI_API_KEY,
-            model=config.OPENAI_MODEL,
-        )
+        try:
+            analysis_result = await llm_factory.analyze_document(
+                extracted_text,
+                "Analyze this document and provide key insights:",
+                use_streaming=False,
+            )
         
-        analysis_result = await client.analyze_document(
-            extracted_text,
-            "Analyze this document and provide key insights:",
-        )
+        except ValueError as e:
+            logger.error(f"No LLM providers available: {e}")
+            await message.answer(
+                "❌ No LLM provider configured. "
+                "Please set OPENAI_API_KEY or REPLICATE_API_TOKEN."
+            )
+            await state.clear()
+            return
+        
+        except Exception as e:
+            logger.error(f"LLM analysis error: {e}")
+            # Try to use alternative provider if available
+            available = llm_factory.get_available_providers()
+            if len(available) > 1:
+                other_provider = [
+                    p for p in available if p != config.LLM_PROVIDER
+                ][0]
+                logger.info(f"Switching to {other_provider} provider")
+                llm_factory.set_primary_provider(other_provider)
+                try:
+                    analysis_result = await llm_factory.analyze_document(
+                        extracted_text,
+                        "Analyze this document and provide key insights:",
+                        use_streaming=False,
+                    )
+                except Exception as e2:
+                    logger.error(f"Fallback also failed: {e2}")
+                    await message.answer(f"❌ Analysis failed: {str(e2)}")
+                    await state.clear()
+                    return
+            else:
+                await message.answer(f"❌ Analysis failed: {str(e)}")
+                await state.clear()
+                return
         
         if not analysis_result:
             await message.answer(
@@ -167,7 +209,7 @@ async def handle_document(
         
         logger.info(
             f"Analysis sent to user {message.from_user.id} "
-            f"({message_count} messages)"
+            f"({message_count} messages) using {config.LLM_PROVIDER}"
         )
         await state.clear()
     
