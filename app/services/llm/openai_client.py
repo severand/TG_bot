@@ -5,7 +5,7 @@ Includes prompt management and response handling.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from openai import AsyncOpenAI, APIError, RateLimitError
 
@@ -29,6 +29,50 @@ class OpenAIClient:
         self.client = AsyncOpenAI(api_key=api_key)
         self.model = model
         self.max_tokens = 4000  # Slightly less than 4096 to be safe
+    
+    async def chat(self, messages: List[Dict[str, Any]]) -> str:
+        """Simple chat without documents.
+        
+        Args:
+            messages: List of message dicts with role and content
+            
+        Returns:
+            str: AI response
+            
+        Raises:
+            APIError: If OpenAI API call fails
+            
+        Example:
+            >>> client = OpenAIClient(api_key="sk-...")
+            >>> response = await client.chat([
+            ...     {"role": "system", "content": "You are helpful assistant"},
+            ...     {"role": "user", "content": "Hello!"}
+            ... ])
+        """
+        try:
+            logger.info(f"Calling OpenAI {self.model} for chat")
+            
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,  # type: ignore
+                max_tokens=self.max_tokens,
+                temperature=0.7,
+            )
+            
+            result = response.choices[0].message.content
+            if not result:
+                raise ValueError("Empty response from API")
+            
+            logger.info(f"Chat completed ({len(result)} chars)")
+            return result
+        
+        except RateLimitError as e:
+            logger.error(f"Rate limit exceeded: {e}")
+            raise APIError("API rate limit exceeded. Please try again later.") from e
+        
+        except APIError as e:
+            logger.error(f"OpenAI API error: {e}")
+            raise
     
     async def analyze_document(
         self,
