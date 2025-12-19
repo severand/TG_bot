@@ -1,17 +1,17 @@
 """Common handlers for start, help, and navigation.
 
 Provides welcome message and general help.
+Uses unified menu system with single message editing.
 """
 
 import logging
 from aiogram import Router, F
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import Command
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.localization import ru
+from app.utils.menu import MenuManager, create_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -19,23 +19,31 @@ router = Router()
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext) -> None:
-    """Start command. Show welcome message."""
+    """Start command. Show welcome message with main menu."""
+    # Clear old session
     await state.clear()
     
-    # Build main menu
-    builder = InlineKeyboardBuilder()
-    builder.button(text=ru.BTN_CHAT, callback_data="mode_chat")
-    builder.button(text=ru.BTN_ANALYZE, callback_data="mode_analyze")
-    builder.button(text=ru.BTN_VIEW_PROMPTS_MENU, callback_data="mode_prompts_menu")
-    builder.adjust(2, 1)
+    # Create main menu keyboard (2 buttons per row)
+    keyboard = create_keyboard(
+        buttons=[
+            (ru.BTN_CHAT, "mode_chat"),
+            (ru.BTN_ANALYZE, "mode_analyze"),
+            (ru.BTN_VIEW_PROMPTS_MENU, "mode_prompts_menu"),
+        ],
+        rows_per_row=2,
+    )
     
     text = f"{ru.WELCOME_TITLE}\n\n{ru.WELCOME_TEXT}"
     
-    await message.answer(
-        text,
-        parse_mode="Markdown",
-        reply_markup=builder.as_markup(),
+    # Show menu (creates new message and saves menu_message_id)
+    await MenuManager.show_menu(
+        message=message,
+        state=state,
+        text=text,
+        keyboard=keyboard,
+        screen_code="main_menu",
     )
+    
     logger.info(f"User {message.from_user.id} started bot")
 
 
@@ -53,76 +61,84 @@ async def cmd_help(message: Message) -> None:
 
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext) -> None:
-    """Cancel command. Exit current mode."""
+    """Cancel command. Clear session and show start menu."""
+    # Clear everything
     await state.clear()
     
-    text = (
-        "❌ Отменено.\n\n"
-        "Вы можете начать снова с /start"
+    # Show start menu again
+    keyboard = create_keyboard(
+        buttons=[
+            (ru.BTN_CHAT, "mode_chat"),
+            (ru.BTN_ANALYZE, "mode_analyze"),
+            (ru.BTN_VIEW_PROMPTS_MENU, "mode_prompts_menu"),
+        ],
+        rows_per_row=2,
     )
     
-    await message.answer(
-        text,
-        parse_mode="Markdown",
+    text = "❌ Отменено.\n\nНачните снова:"
+    
+    await MenuManager.show_menu(
+        message=message,
+        state=state,
+        text=text,
+        keyboard=keyboard,
+        screen_code="main_menu",
     )
-    logger.info(f"User {message.from_user.id} cancelled operation")
+    
+    logger.info(f"User {message.from_user.id} cancelled")
 
 
 @router.callback_query(F.data == "mode_chat")
-async def cb_mode_chat(query, state: FSMContext) -> None:
+async def cb_mode_chat(callback, state: FSMContext) -> None:
     """Switch to chat mode."""
-    # Let chat handler take over
-    # Send /chat command
-    await query.answer()
-    # Create fake message to trigger chat handler
-    # Actually just redirect to start chat
-    from aiogram.types import User
+    # Import chat handler
+    from app.handlers.chat import start_chat_mode
     
-    # Create a message that looks like /chat command
-    fake_message = Message(
-        message_id=query.message.message_id,
-        date=query.message.date,
-        chat=query.message.chat,
-        from_user=query.from_user,
-        text="/chat",
-    )
-    
-    # Import and call chat handler
-    from app.handlers.chat import cmd_chat
-    await cmd_chat(fake_message, state)
+    # Navigate to chat mode
+    await start_chat_mode(callback, state)
 
 
 @router.callback_query(F.data == "mode_analyze")
-async def cb_mode_analyze(query, state: FSMContext) -> None:
+async def cb_mode_analyze(callback, state: FSMContext) -> None:
     """Switch to analyze mode."""
-    await query.answer()
+    # Import analyze handler
+    from app.handlers.conversation import start_analyze_mode
     
-    # Create fake message for analyze handler
-    fake_message = Message(
-        message_id=query.message.message_id,
-        date=query.message.date,
-        chat=query.message.chat,
-        from_user=query.from_user,
-        text="/analyze",
-    )
-    
-    from app.handlers.conversation import cmd_analyze
-    await cmd_analyze(fake_message, state)
+    # Navigate to analyze mode
+    await start_analyze_mode(callback, state)
 
 
 @router.callback_query(F.data == "mode_prompts_menu")
-async def cb_mode_prompts(query, state: FSMContext) -> None:
+async def cb_mode_prompts(callback, state: FSMContext) -> None:
     """Switch to prompts mode."""
-    await query.answer()
+    # Import prompts handler
+    from app.handlers.prompts import start_prompts_mode
     
-    # Create fake message for prompts handler
-    fake_message = Message(
-        message_id=query.message.message_id,
-        date=query.message.date,
-        chat=query.message.chat,
-        from_user=query.from_user,
-        text="/prompts",
+    # Navigate to prompts mode
+    await start_prompts_mode(callback, state)
+
+
+@router.callback_query(F.data == "back_to_main_menu")
+async def cb_back_to_main(callback, state: FSMContext) -> None:
+    """Return to main menu."""
+    keyboard = create_keyboard(
+        buttons=[
+            (ru.BTN_CHAT, "mode_chat"),
+            (ru.BTN_ANALYZE, "mode_analyze"),
+            (ru.BTN_VIEW_PROMPTS_MENU, "mode_prompts_menu"),
+        ],
+        rows_per_row=2,
     )
     
-    from app.handlers.prompts import cmd_prompts
-    await cmd_prompts(fake_message, state)
+    text = f"{ru.WELCOME_TITLE}\n\n{ru.WELCOME_TEXT}"
+    
+    # Navigate back to main menu using MenuManager
+    await MenuManager.navigate(
+        callback=callback,
+        state=state,
+        text=text,
+        keyboard=keyboard,
+        new_state=None,
+        screen_code="main_menu",
+        preserve_data=False,  # Clear dialog state
+    )
