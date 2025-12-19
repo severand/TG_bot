@@ -5,6 +5,7 @@ Includes fallback to OpenAI if Replicate fails.
 """
 
 import logging
+import os
 from typing import AsyncIterator, Optional, List, Dict, Any
 
 try:
@@ -51,9 +52,15 @@ class ReplicateClient:
                 "Install with: pip install replicate"
             )
         
+        # CRITICAL: Set the API token as environment variable
+        # This is how the replicate library expects to receive auth
+        os.environ["REPLICATE_API_TOKEN"] = api_token
+        
         self.client = replicate
         self.api_token = api_token
         self.model = model
+        
+        logger.info(f"Replicate client initialized with model: {model}")
     
     async def chat(self, messages: List[Dict[str, Any]]) -> str:
         """Simple chat without documents.
