@@ -15,7 +15,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.services.prompts.prompt_manager import PromptManager
 from app.states.prompts import PromptStates
-from app.utils.menu import MenuManager
 
 logger = logging.getLogger(__name__)
 
@@ -93,45 +92,39 @@ async def start_prompts_mode(callback: CallbackQuery = None, message: Message = 
     
     await state.clear()
     
+    text = (
+        "🎯 *Управление промптами*\n\n"
+        "Управляйте своими промптами для анализа. Выберите действие:"
+    )
+    
     if message:
         user_id = message.from_user.id
         prompt_manager.load_user_prompts(user_id)
-        
-        text = (
-            "🎯 *Управление промптами*\n\n"
-            "Управляйте своими промптами для анализа. Выберите действие:"
-        )
         
         await message.answer(
             text,
             parse_mode="Markdown",
             reply_markup=get_main_menu_keyboard(),
         )
+        logger.info(f"Prompts mode started for user {user_id}")
     elif callback:
         user_id = callback.from_user.id
         prompt_manager.load_user_prompts(user_id)
         
-        text = (
-            "🎯 *Управление промптами*\n\n"
-            "Управляйте своими промптами для анализа. Выберите действие:"
+        # Просто отправляем новое сообщение
+        await callback.message.answer(
+            text,
+            parse_mode="Markdown",
+            reply_markup=get_main_menu_keyboard(),
         )
-        
-        await MenuManager.navigate(
-            callback=callback,
-            state=state,
-            text=text,
-            keyboard=get_main_menu_keyboard(),
-            new_state=None,
-            screen_code="prompts_menu",
-            preserve_data=True,
-        )
-    
-    logger.info(f"Prompts mode started")
+        await callback.answer()
+        logger.info(f"Prompts mode started for user {user_id}")
 
 
 @router.message(Command("prompts"))
 async def cmd_prompts(message: Message, state: FSMContext) -> None:
     """Show prompts menu."""
+    logger.info(f"User {message.from_user.id} activated /prompts")
     await start_prompts_mode(message=message, state=state)
 
 
