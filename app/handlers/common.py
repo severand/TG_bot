@@ -1,7 +1,7 @@
 """Common handlers for start, help, and navigation.
 
 Provides welcome message and general help.
-Uses unified menu system with single message editing.
+Simple command-based navigation - no inline buttons.
 """
 
 import logging
@@ -11,7 +11,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from app.localization import ru
-from app.utils.menu import MenuManager, create_keyboard
+from app.states.chat import ChatStates
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -19,38 +19,54 @@ router = Router()
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext) -> None:
-    """Start command. Show welcome message with main menu."""
+    """Start command. Show welcome and activate chat mode by default."""
     # Clear old session
     await state.clear()
     
-    # Create main menu keyboard (2 buttons per row)
-    keyboard = create_keyboard(
-        buttons=[
-            (ru.BTN_CHAT, "mode_chat"),
-            (ru.BTN_ANALYZE, "mode_analyze"),
-            (ru.BTN_VIEW_PROMPTS_MENU, "mode_prompts_menu"),
-        ],
-        rows_per_row=2,
+    # Set chat mode as default
+    await state.set_state(ChatStates.chatting)
+    
+    # Simple welcome text without buttons
+    text = (
+        "👋 *Добро пожаловать в Promt Bot!*\n\n"
+        "🚀 Я готов помочь вам с:\n"
+        "• Обычным диалогом\n"
+        "• Анализом документов\n"
+        "• Настройкой промптов\n\n"
+        "💬 *По умолчанию активен режим диалога.*\n"
+        "Просто напишите мне свой вопрос!\n\n"
+        "📝 *Доступные команды в меню:*\n"
+        "• /chat - Режим диалога\n"
+        "• /analyze - Анализ документов\n"
+        "• /prompts - Управление промптами\n"
+        "• /help - Справка"
     )
     
-    text = f"{ru.WELCOME_TITLE}\n\n{ru.WELCOME_TEXT}"
-    
-    # Show menu (creates new message and saves menu_message_id)
-    await MenuManager.show_menu(
-        message=message,
-        state=state,
-        text=text,
-        keyboard=keyboard,
-        screen_code="main_menu",
+    await message.answer(
+        text,
+        parse_mode="Markdown",
     )
     
-    logger.info(f"User {message.from_user.id} started bot")
+    logger.info(f"User {message.from_user.id} started bot (chat mode by default)")
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    """Help command. Show available commands."""
-    text = f"{ru.HELP_TITLE}\n\n{ru.HELP_TEXT}"
+    """Help command. Show available commands and usage."""
+    text = (
+        "❓ *Справка по боту*\n\n"
+        "📝 *Основные команды:*\n\n"
+        "💬 */chat* - Режим диалога\n"
+        "Просто общайтесь с ботом. Задавайте вопросы, получайте ответы.\n\n"
+        "📊 */analyze* - Анализ документов\n"
+        "Загрузите PDF, DOCX, TXT или ZIP, затем пишите инструкции для анализа.\n\n"
+        "🎯 */prompts* - Управление промптами\n"
+        "Создавайте и редактируйте свои промпты для анализа документов.\n\n"
+        "❓ */help* - Показать эту справку\n\n"
+        "🔑 *Подсказка:*\n"
+        "По умолчанию бот в режиме диалога. Просто пишите сообщения!\n"
+        "Для других функций используйте команды из меню."
+    )
     
     await message.answer(
         text,
@@ -61,84 +77,65 @@ async def cmd_help(message: Message) -> None:
 
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext) -> None:
-    """Cancel command. Clear session and show start menu."""
+    """Cancel command. Clear session and return to chat mode."""
     # Clear everything
     await state.clear()
     
-    # Show start menu again
-    keyboard = create_keyboard(
-        buttons=[
-            (ru.BTN_CHAT, "mode_chat"),
-            (ru.BTN_ANALYZE, "mode_analyze"),
-            (ru.BTN_VIEW_PROMPTS_MENU, "mode_prompts_menu"),
-        ],
-        rows_per_row=2,
+    # Return to chat mode
+    await state.set_state(ChatStates.chatting)
+    
+    text = (
+        "❌ *Отменено*\n\n"
+        "Возвращаемся в режим диалога.\n"
+        "Пишите мне свои вопросы!"
     )
     
-    text = "❌ Отменено.\n\nНачните снова:"
-    
-    await MenuManager.show_menu(
-        message=message,
-        state=state,
-        text=text,
-        keyboard=keyboard,
-        screen_code="main_menu",
+    await message.answer(
+        text,
+        parse_mode="Markdown",
     )
     
     logger.info(f"User {message.from_user.id} cancelled")
 
 
+# Keep callback handlers for backward compatibility
+# But they're not used in new design
 @router.callback_query(F.data == "mode_chat")
 async def cb_mode_chat(callback: CallbackQuery, state: FSMContext) -> None:
-    """Switch to chat mode."""
-    # Import chat handler
+    """Switch to chat mode (legacy)."""
     from app.handlers.chat import start_chat_mode
-    
-    # Navigate to chat mode with named parameters
     await start_chat_mode(callback=callback, state=state)
 
 
 @router.callback_query(F.data == "mode_analyze")
 async def cb_mode_analyze(callback: CallbackQuery, state: FSMContext) -> None:
-    """Switch to analyze mode."""
-    # Import analyze handler
+    """Switch to analyze mode (legacy)."""
     from app.handlers.conversation import start_analyze_mode
-    
-    # Navigate to analyze mode with named parameters
     await start_analyze_mode(callback=callback, state=state)
 
 
 @router.callback_query(F.data == "mode_prompts_menu")
 async def cb_mode_prompts(callback: CallbackQuery, state: FSMContext) -> None:
-    """Switch to prompts mode."""
-    # Import prompts handler
+    """Switch to prompts mode (legacy)."""
     from app.handlers.prompts import start_prompts_mode
-    
-    # Navigate to prompts mode with named parameters
     await start_prompts_mode(callback=callback, state=state)
 
 
 @router.callback_query(F.data == "back_to_main_menu")
 async def cb_back_to_main(callback: CallbackQuery, state: FSMContext) -> None:
-    """Return to main menu."""
-    keyboard = create_keyboard(
-        buttons=[
-            (ru.BTN_CHAT, "mode_chat"),
-            (ru.BTN_ANALYZE, "mode_analyze"),
-            (ru.BTN_VIEW_PROMPTS_MENU, "mode_prompts_menu"),
-        ],
-        rows_per_row=2,
+    """Return to main menu (legacy)."""
+    await state.clear()
+    await state.set_state(ChatStates.chatting)
+    
+    text = (
+        "🏠 *Главное меню*\n\n"
+        "Режим диалога активен.\n"
+        "Пишите мне свои вопросы!\n\n"
+        "Используйте команды из меню для других функций."
     )
     
-    text = f"{ru.WELCOME_TITLE}\n\n{ru.WELCOME_TEXT}"
-    
-    # Navigate back to main menu using MenuManager
-    await MenuManager.navigate(
-        callback=callback,
-        state=state,
-        text=text,
-        keyboard=keyboard,
-        new_state=None,
-        screen_code="main_menu",
-        preserve_data=False,  # Clear dialog state
+    await callback.message.answer(
+        text,
+        parse_mode="Markdown",
     )
+    await callback.answer()
