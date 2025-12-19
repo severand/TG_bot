@@ -12,7 +12,7 @@ from aiogram import Dispatcher
 
 from app.bot import create_bot, create_dispatcher, setup_bot_commands
 from app.config import get_settings
-from app.handlers import common, documents
+from app.handlers import common, documents, prompts
 
 # Setup logging
 logging.basicConfig(
@@ -46,6 +46,11 @@ async def main() -> None:
     temp_dir.mkdir(exist_ok=True)
     logger.info(f"Temp directory: {temp_dir}")
     
+    # Create data directory for prompts
+    data_dir = Path("./data")
+    data_dir.mkdir(exist_ok=True)
+    logger.info(f"Data directory: {data_dir}")
+    
     # Create bot and dispatcher
     try:
         bot = create_bot(config.TG_BOT_TOKEN)
@@ -64,6 +69,7 @@ async def main() -> None:
     # Register handlers
     dispatcher.include_router(common.router)
     dispatcher.include_router(documents.router)
+    dispatcher.include_router(prompts.router)
     logger.info("Handlers registered")
     
     # Start polling
