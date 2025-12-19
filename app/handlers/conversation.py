@@ -1,10 +1,7 @@
 """Conversation mode handlers for interactive document analysis.
 
-Allows users to:
-1. Upload a document
-2. Get confirmation that it's ready
-3. Send text instructions for analysis
-4. Get analysis results based on custom prompts
+Simplified: Just upload documents and send analysis instructions.
+No menus, no buttons - clean workflow via /analyze command.
 """
 
 import logging
@@ -12,9 +9,8 @@ import uuid
 from pathlib import Path
 
 from aiogram import Router, F
-from aiogram.types import Message, Document, File, InlineKeyboardMarkup, CallbackQuery
+from aiogram.types import Message, Document, File, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.config import get_settings
 from app.states.conversation import ConversationStates
@@ -23,7 +19,6 @@ from app.services.llm.llm_factory import LLMFactory
 from app.services.prompts.prompt_manager import PromptManager
 from app.utils.text_splitter import TextSplitter
 from app.utils.cleanup import CleanupManager
-from app.utils.menu import MenuManager, create_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -39,26 +34,16 @@ llm_factory = LLMFactory(
 )
 
 
-def get_document_menu() -> InlineKeyboardMarkup:
-    """Menu when document is loaded."""
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🗑️ Clear Document", callback_data="doc_clear")
-    builder.button(text="📌 View Document Info", callback_data="doc_info")
-    return builder.as_markup()
-
-
-def get_start_menu() -> InlineKeyboardMarkup:
-    """Main start menu with action buttons."""
-    builder = InlineKeyboardBuilder()
-    builder.button(text="📄 Upload Document", callback_data="mode_upload")
-    builder.button(text="📌 View Prompts", callback_data="mode_prompts")
-    return builder.as_markup()
+@router.message(F.text == "/analyze")
+async def cmd_analyze(message: Message, state: FSMContext) -> None:
+    """Activate document analysis mode."""
+    await start_analyze_mode(message=message, state=state)
 
 
 async def start_analyze_mode(callback: CallbackQuery = None, message: Message = None, state: FSMContext = None) -> None:
     """Start interactive document analysis mode.
     
-    Can be called from menu or /analyze command.
+    Simple activation - just explain and wait for document.
     """
     if state is None:
         logger.error("state is None in start_analyze_mode")
@@ -67,60 +52,39 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
     await state.set_state(ConversationStates.ready)
     
     text = (
-        "💬 *Document Analysis Mode*\n\n"
-        "Welcome to interactive document analysis!\n\n"
-        "*How it works:*\n"
-        "1️⃣ Upload a document (PDF, DOCX, TXT, or ZIP)\n"
-        "2️⃣ Bot confirms it's ready\n"
-        "3️⃣ Send text messages with analysis instructions\n"
-        "4️⃣ Bot analyzes based on your commands\n\n"
-        "*Example:*\n"
-        "You: [Upload contract.pdf]\n"
-        "Bot: Document ready! ✅\n"
-        "You: 'Identify all risks in this contract'\n"
-        "Bot: [Detailed risk analysis]\n\n"
-        "Ready? Upload your document or choose an action below."
+        "📊 *Режим анализа документов активен*\n\n"
+        "📝 *Как это работает:*\n"
+        "1️⃣ Загрузите документ (PDF, DOCX, TXT, ZIP)\n"
+        "2️⃣ Бот подтвердит готовность\n"
+        "3️⃣ Напишите инструкцию для анализа\n"
+        "4️⃣ Получите результат\n\n"
+        "📎 *Пример:*\n"
+        "• Загрузите contract.pdf\n"
+        "• Напишите: 'Найди все риски в этом договоре'\n"
+        "• Получите детальный анализ\n\n"
+        "📤 *Готов? Загрузите документ!*"
     )
-    
-    keyboard = get_start_menu()
     
     if message:
         await message.answer(
             text,
             parse_mode="Markdown",
-            reply_markup=keyboard,
         )
     elif callback:
-        await MenuManager.navigate(
-            callback=callback,
-            state=state,
-            text=text,
-            keyboard=keyboard,
-            new_state=ConversationStates.ready,
-            screen_code="analyze_mode",
-            preserve_data=True,
+        await callback.message.answer(
+            text,
+            parse_mode="Markdown",
         )
+        await callback.answer()
     
     logger.info(f"Analysis mode started")
 
 
-@router.message(F.text == "/analyze")
-async def cmd_analyze(message: Message, state: FSMContext) -> None:
-    """Start interactive document analysis mode.
-    
-    /analyze - Активирует режим анализа документов
-    """
-    await start_analyze_mode(message=message, state=state)
-
-
 @router.message(ConversationStates.ready, F.document)
 async def handle_document_upload(message: Message, state: FSMContext) -> None:
-    """Handle document upload in conversation mode.
-    
-    Saves document to memory and confirms it's ready.
-    """
+    """Handle document upload - extract and save."""
     if not message.document:
-        await message.answer("❌ No document found")
+        await message.answer("❌ Документ не найден")
         return
     
     document: Document = message.document
@@ -130,19 +94,18 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
     if file_size > config.MAX_FILE_SIZE:
         max_size_mb = config.MAX_FILE_SIZE / (1024 * 1024)
         await message.answer(
-            f"⚠️ File is too large: {file_size / (1024 * 1024):.1f} MB\n"
-            f"Maximum allowed: {max_size_mb:.1f} MB"
+            f"⚠️ Файл слишком большой: {file_size / (1024 * 1024):.1f} MB\n"
+            f"Максимум: {max_size_mb:.1f} MB"
         )
         return
     
     # Show processing
     status_msg = await message.answer(
-        "🔍 Processing document...\n"
-        "Downloading and extracting content..."
+        "🔍 Обрабатываю документ...\n"
+        "Скачивание и извлечение текста..."
     )
     
     temp_user_dir = None
-    temp_file_path = None
     
     try:
         # Create temp directory
@@ -158,7 +121,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         file: File = await bot.get_file(document.file_id)
         
         if not file.file_path:
-            await message.answer("❌ Failed to get file path")
+            await message.answer("❌ Не удалось получить путь к файлу")
             await status_msg.delete()
             return
         
@@ -171,8 +134,8 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         
         # Extract text
         await status_msg.edit_text(
-            "🔍 Processing document...\n"
-            "Extracting text content..."
+            "🔍 Обрабатываю документ...\n"
+            "Извлечение текста..."
         )
         
         converter = FileConverter()
@@ -180,8 +143,8 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         
         if not extracted_text or not extracted_text.strip():
             await message.answer(
-                "⚠️ No text content found in document.\n"
-                "Try another file."
+                "⚠️ В документе не найден текст.\n"
+                "Попробуйте другой файл."
             )
             await status_msg.delete()
             return
@@ -201,22 +164,21 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         await status_msg.delete()
         
         text = (
-            f"✅ *Document Ready!*\n\n"
-            f"*File:* `{document.file_name or 'document'}`\n"
-            f"*Size:* {len(extracted_text):,} characters\n\n"
-            f"Now send me instructions for analysis:\n\n"
-            f"*Examples:*\n"
-            f"📝 'Summarize this document'\n"
-            f"📝 'Identify all risks'\n"
-            f"📝 'Extract key points'\n"
-            f"📝 'Analyze legal implications'\n\n"
-            f"Or use a custom prompt with /prompts"
+            f"✅ *Документ готов!*\n\n"
+            f"*Файл:* `{document.file_name or 'document'}`\n"
+            f"*Размер:* {len(extracted_text):,} символов\n\n"
+            f"📝 *Теперь напишите инструкцию для анализа:*\n\n"
+            f"Примеры:\n"
+            f"• 'Сделай краткое резюме'\n"
+            f"• 'Найди все риски'\n"
+            f"• 'Извлеки ключевые пункты'\n"
+            f"• 'Проанализируй юридические аспекты'\n\n"
+            f"🔄 Чтобы очистить: /cancel"
         )
         
         await message.answer(
             text,
             parse_mode="Markdown",
-            reply_markup=get_document_menu(),
         )
         
         logger.info(
@@ -226,29 +188,21 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
     
     except Exception as e:
         logger.error(f"Error processing document: {e}")
-        await message.answer(f"❌ Error: {str(e)}")
+        await message.answer(f"❌ Ошибка: {str(e)}")
         await status_msg.delete()
-    
-    finally:
-        # Don't cleanup yet - document is in state
-        pass
 
 
 @router.message(ConversationStates.waiting_for_command, F.text)
 async def handle_analysis_command(message: Message, state: FSMContext) -> None:
-    """Handle text commands for document analysis.
-    
-    User sends instructions, bot analyzes document accordingly.
-    """
+    """Handle text commands for document analysis."""
     command = message.text.strip()
     
     if not command:
-        await message.answer("Please provide an analysis instruction.")
+        await message.answer("Укажите инструкцию для анализа.")
         return
     
     # Check for special commands
     if command.startswith("/"):
-        # Don't handle commands here
         return
     
     data = await state.get_data()
@@ -257,79 +211,51 @@ async def handle_analysis_command(message: Message, state: FSMContext) -> None:
     
     if not document_text:
         await message.answer(
-            "⚠️ No document loaded.\n"
-            "Please upload a document first."
+            "⚠️ Документ не загружен.\n"
+            "Загрузите документ сначала."
         )
         await state.set_state(ConversationStates.ready)
         return
     
-    # Set processing state
-    await state.set_state(ConversationStates.processing)
-    
-    # Show processing indicator
-    status_msg = await message.answer(
-        f"🤖 Analyzing '{document_name}'...\n"
-        f"📍 Instruction: {command[:50]}..."
-    )
+    # Show typing
+    await message.bot.send_chat_action(message.chat.id, "typing")
     
     try:
-        # Get user's default prompt or use default
+        # Get user's default prompt
         default_prompt_name = data.get("default_prompt", "default")
         prompt = prompt_manager.get_prompt(message.from_user.id, default_prompt_name)
         
         if not prompt:
             prompt = prompt_manager.get_prompt(message.from_user.id, "default")
         
-        # Analyze with user's command
+        # Analyze
         analysis_result = await llm_factory.analyze_document(
             document_text,
-            command,  # Use user's instruction as the prompt
+            command,
             system_prompt=prompt.system_prompt if prompt else None,
             use_streaming=False,
         )
         
         if not analysis_result:
-            await message.answer("❌ Analysis failed. Try again.")
-            await status_msg.delete()
-            await state.set_state(ConversationStates.waiting_for_command)
+            await message.answer("❌ Анализ не удался. Попробуйте ещё раз.")
             return
         
-        # Delete processing message
-        await status_msg.delete()
+        # Split and send
+        splitter = TextSplitter(max_length=4000)
+        chunks = splitter.split(analysis_result)
         
-        # Send result
-        splitter = TextSplitter()
-        message_count = splitter.count_messages(analysis_result)
-        
-        if message_count <= 3:
-            # Send as text messages
-            chunks = splitter.split(analysis_result)
+        if len(chunks) == 1:
+            await message.answer(
+                analysis_result,
+                parse_mode="Markdown",
+            )
+        else:
             for i, chunk in enumerate(chunks, 1):
-                prefix = f"*[Part {i}/{len(chunks)}]*\n\n" if len(chunks) > 1 else ""
+                prefix = f"*[Часть {i}/{len(chunks)}]*\n\n"
                 await message.answer(
                     f"{prefix}{chunk}",
                     parse_mode="Markdown",
                 )
-        else:
-            # Send as file
-            from docx import Document
-            
-            doc = Document()
-            doc.add_heading(
-                f"Analysis: {document_name}",
-                level=1,
-            )
-            doc.add_paragraph(f"*Instruction:* {command}")
-            doc.add_paragraph(analysis_result)
-            
-            temp_base = Path(config.TEMP_DIR)
-            output_file = temp_base / f"analysis_{uuid.uuid4()}.docx"
-            doc.save(output_file)
-            
-            await message.answer_document(
-                open(output_file, "rb"),
-                caption=f"📄 Analysis result ({message_count} messages)",
-            )
         
         logger.info(
             f"Analysis completed for user {message.from_user.id}: "
@@ -338,79 +264,31 @@ async def handle_analysis_command(message: Message, state: FSMContext) -> None:
     
     except Exception as e:
         logger.error(f"Analysis error: {e}")
-        await message.answer(f"❌ Error: {str(e)}")
-        await status_msg.delete()
-    
-    finally:
-        # Return to waiting for command
-        await state.set_state(ConversationStates.waiting_for_command)
+        await message.answer(f"❌ Ошибка: {str(e)[:100]}")
 
 
+# Legacy callbacks - not used in new design
 @router.callback_query(F.data == "doc_clear")
-async def cb_doc_clear(query, state: FSMContext) -> None:
-    """Clear loaded document and return to ready."""
+async def cb_doc_clear(query: CallbackQuery, state: FSMContext) -> None:
+    """Clear document (legacy)."""
     await state.clear()
     await state.set_state(ConversationStates.ready)
-    
-    text = (
-        "🗑️ Document cleared!\n\n"
-        "Ready for a new document. Upload one to get started."
-    )
-    
-    await query.message.edit_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=get_start_menu(),
-    )
+    await query.message.answer("🗑️ Документ очищен. Загрузите новый.")
     await query.answer()
-    logger.info(f"User {query.from_user.id} cleared document")
 
 
 @router.callback_query(F.data == "doc_info")
-async def cb_doc_info(query, state: FSMContext) -> None:
-    """Show loaded document information."""
+async def cb_doc_info(query: CallbackQuery, state: FSMContext) -> None:
+    """Show doc info (legacy)."""
     data = await state.get_data()
     document_name = data.get("document_name", "Unknown")
     document_size = data.get("document_size", 0)
     
     text = (
-        f"📌 *Document Information*\n\n"
-        f"*Name:* `{document_name}`\n"
-        f"*Size:* {document_size:,} characters\n\n"
-        f"Continue sending analysis instructions."
+        f"📊 *Информация о документе*\n\n"
+        f"*Имя:* `{document_name}`\n"
+        f"*Размер:* {document_size:,} символов"
     )
     
-    await query.message.edit_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=get_document_menu(),
-    )
+    await query.message.answer(text, parse_mode="Markdown")
     await query.answer()
-
-
-@router.callback_query(F.data == "mode_upload")
-async def cb_mode_upload(query, state: FSMContext) -> None:
-    """Ready to receive upload."""
-    await state.set_state(ConversationStates.ready)
-    
-    text = (
-        "📄 *Ready for Upload*\n\n"
-        "Send me a document file:\n"
-        "• PDF\n"
-        "• DOCX (Word)\n"
-        "• TXT\n"
-        "• ZIP (with multiple files)\n\n"
-        "Maximum size: 20 MB"
-    )
-    
-    await query.message.edit_text(
-        text,
-        parse_mode="Markdown",
-    )
-    await query.answer()
-
-
-@router.callback_query(F.data == "mode_prompts")
-async def cb_mode_prompts(query, state: FSMContext) -> None:
-    """Show prompts menu."""
-    await query.answer("Use /prompts to manage your analysis prompts", show_alert=True)
