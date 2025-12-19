@@ -12,7 +12,7 @@ from aiogram import Dispatcher
 
 from app.bot import create_bot, create_dispatcher, setup_bot_commands
 from app.config import get_settings
-from app.handlers import common, documents, prompts, conversation
+from app.handlers import common, documents, prompts, conversation, chat
 
 # Setup logging
 logging.basicConfig(
@@ -66,8 +66,9 @@ async def main() -> None:
     except Exception as e:
         logger.warning(f"Failed to setup bot commands: {e}")
     
-    # Register handlers
+    # Register handlers (order matters!)
     dispatcher.include_router(common.router)
+    dispatcher.include_router(chat.router)
     dispatcher.include_router(documents.router)
     dispatcher.include_router(prompts.router)
     dispatcher.include_router(conversation.router)
