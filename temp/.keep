@@ -1,0 +1,3 @@
+# Temporary directory for file processing
+# This directory will be created at runtime
+# Keep this file to ensure git tracks the directory
