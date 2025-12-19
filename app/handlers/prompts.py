@@ -386,34 +386,129 @@ async def cb_prompt_delete_final(query: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("prompt_edit_"))
 async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
-    """Edit prompt."""
-    prompt_name = query.data.replace("prompt_edit_", "")
+    """Edit prompt - show options."""
+    # Extract prompt name (handle both prompt_edit_X and prompt_edit_system_X/prompt_edit_user_X)
+    if query.data.startswith("prompt_edit_system_"):
+        prompt_name = query.data.replace("prompt_edit_system_", "")
+        edit_type = "system"
+    elif query.data.startswith("prompt_edit_user_"):
+        prompt_name = query.data.replace("prompt_edit_user_", "")
+        edit_type = "user"
+    else:
+        prompt_name = query.data.replace("prompt_edit_", "")
+        edit_type = None
+    
     prompt = prompt_manager.get_prompt(query.from_user.id, prompt_name)
     
     if not prompt:
         await query.answer("❌ Промпт не найден")
         return
     
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text="✏️ Системный промпт",
-        callback_data=f"prompt_edit_system_{prompt_name}"
-    )
-    builder.button(
-        text="✏️ Промпт пользователя",
-        callback_data=f"prompt_edit_user_{prompt_name}"
-    )
-    builder.button(text="« Назад", callback_data=f"prompt_select_{prompt_name}")
-    builder.adjust(2)
+    # If edit_type is specified, show input prompt
+    if edit_type:
+        await state.update_data(editing_prompt=prompt_name, edit_field=edit_type)
+        
+        if edit_type == "system":
+            await state.set_state(PromptStates.editing_system)
+            text = (
+                f"✏️ *Редактировать: {prompt_name}*\n\n"
+                f"Текущий системный промпт:\n`{prompt.system_prompt[:300]}...`\n\n"
+                f"Введите новый системный промпт:"
+            )
+        else:  # user
+            await state.set_state(PromptStates.editing_user)
+            text = (
+                f"✏️ *Редактировать: {prompt_name}*\n\n"
+                f"Текущий промпт пользователя:\n`{prompt.user_prompt_template[:300]}...`\n\n"
+                f"Введите новый промпт пользователя:"
+            )
+        
+        await query.message.edit_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="« Отмена", callback_data=f"prompt_select_{prompt_name}")]]
+            ),
+        )
+    else:
+        # Show edit options
+        builder = InlineKeyboardBuilder()
+        builder.button(
+            text="✏️ Системный промпт",
+            callback_data=f"prompt_edit_system_{prompt_name}"
+        )
+        builder.button(
+            text="✏️ Промпт пользователя",
+            callback_data=f"prompt_edit_user_{prompt_name}"
+        )
+        builder.button(text="« Назад", callback_data=f"prompt_select_{prompt_name}")
+        builder.adjust(2)
+        
+        text = f"✏️ *Редактировать промпт: {prompt_name}*\n\nВыберите, что редактировать:"
+        
+        await query.message.edit_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup(),
+        )
     
-    text = f"✏️ *Редактировать промпт: {prompt_name}*\n\nВыберите, что редактировать:"
-    
-    await query.message.edit_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=builder.as_markup(),
-    )
     await query.answer()
+
+
+@router.message(PromptStates.editing_system)
+async def msg_edit_system(message: Message, state: FSMContext) -> None:
+    """Save edited system prompt."""
+    new_system = message.text
+    
+    if not new_system or len(new_system) < 10:
+        await message.answer(
+            "❌ Системный промпт слишком короткий.\nПопробуйте снова:"
+        )
+        return
+    
+    data = await state.get_data()
+    prompt_name = data["editing_prompt"]
+    
+    prompt_manager.update_prompt(
+        user_id=message.from_user.id,
+        prompt_name=prompt_name,
+        system_prompt=new_system,
+    )
+    
+    await message.answer(
+        f"✅ Системный промпт обновлён!",
+        parse_mode="Markdown",
+    )
+    await state.clear()
+    logger.info(f"User {message.from_user.id} edited system prompt: {prompt_name}")
+
+
+@router.message(PromptStates.editing_user)
+async def msg_edit_user(message: Message, state: FSMContext) -> None:
+    """Save edited user prompt."""
+    new_user = message.text
+    
+    if not new_user or len(new_user) < 10:
+        await message.answer(
+            "❌ Промпт слишком короткий.\nПопробуйте снова:"
+        )
+        return
+    
+    data = await state.get_data()
+    prompt_name = data["editing_prompt"]
+    
+    prompt_manager.update_prompt(
+        user_id=message.from_user.id,
+        prompt_name=prompt_name,
+        user_prompt_template=new_user,
+    )
+    
+    await message.answer(
+        f"✅ Промпт пользователя обновлён!",
+        parse_mode="Markdown",
+    )
+    await state.clear()
+    logger.info(f"User {message.from_user.id} edited user prompt: {prompt_name}")
 
 
 @router.callback_query(F.data.startswith("prompt_set_default_"))
