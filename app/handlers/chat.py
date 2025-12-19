@@ -1,7 +1,7 @@
 """Chat mode handlers for simple AI conversation.
 
 Allows users to have a normal conversation with AI without
-needing to upload documents. Just ask questions or chat normally.
+needing to upload documents. This is the DEFAULT mode.
 """
 
 import logging
@@ -15,7 +15,6 @@ from app.localization import ru
 from app.states.chat import ChatStates
 from app.services.llm.llm_factory import LLMFactory
 from app.utils.text_splitter import TextSplitter
-from app.utils.menu import MenuManager
 
 logger = logging.getLogger(__name__)
 
@@ -32,24 +31,40 @@ llm_factory = LLMFactory(
 
 @router.message(Command("chat"))
 async def cmd_chat(message: Message, state: FSMContext) -> None:
-    """Start chat mode.
+    """Activate chat mode explicitly.
     
-    User can have a normal conversation with AI.
+    Note: Chat mode is active by default after /start.
+    This command just confirms it.
     """
-    await start_chat_mode(message=message, state=state)
+    await state.clear()
+    await state.set_state(ChatStates.chatting)
+    
+    text = (
+        "💬 *Режим диалога активен*\n\n"
+        "Пишите мне свои вопросы, я готов помочь!"
+    )
+    
+    await message.answer(
+        text,
+        parse_mode="Markdown",
+    )
+    
+    logger.info(f"Chat mode activated for user {message.from_user.id}")
 
 
 async def start_chat_mode(callback: CallbackQuery = None, message: Message = None, state: FSMContext = None) -> None:
-    """Start chat mode - can be called from /chat or from menu."""
+    """Start chat mode (legacy function for compatibility)."""
     if state is None:
         logger.error("state is None in start_chat_mode")
         return
     
     await state.set_state(ChatStates.chatting)
     
-    text = f"{ru.CHAT_MODE_TITLE}\n\n{ru.CHAT_MODE_TEXT}"
+    text = (
+        "💬 *Режим диалога активен*\n\n"
+        "Пишите мне свои вопросы, я готов помочь!"
+    )
     
-    # Show start message
     if message:
         await message.answer(
             text,
@@ -81,7 +96,6 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
     if user_message.startswith("/"):
         return
     
-    # DON'T delete user message - keep conversation visible
     # Show typing indicator
     await message.bot.send_chat_action(message.chat.id, "typing")
     
@@ -142,6 +156,6 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "chat_exit")
 async def cb_chat_exit(callback: CallbackQuery, state: FSMContext) -> None:
-    """Exit chat mode and return to main menu."""
+    """Exit chat mode (legacy - not used in new design)."""
     from app.handlers.common import cb_back_to_main
     await cb_back_to_main(callback, state)
