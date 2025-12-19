@@ -19,9 +19,11 @@ async def setup_bot_commands(bot: Bot) -> None:
         bot: Bot instance
     """
     commands = [
-        BotCommand(command="start", description="Start the bot"),
-        BotCommand(command="help", description="Show help information"),
-        BotCommand(command="analyze", description="Analyze uploaded document"),
+        BotCommand(command="start", description="👋 Запустить бота"),
+        BotCommand(command="chat", description="💬 Режим диалога"),
+        BotCommand(command="analyze", description="📊 Анализ документов"),
+        BotCommand(command="prompts", description="🎯 Управление промптами"),
+        BotCommand(command="help", description="❓ Справка"),
     ]
     
     await bot.set_my_commands(commands)
