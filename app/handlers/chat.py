@@ -9,7 +9,7 @@ Uses unified menu system with single message editing.
 import logging
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from app.config import get_settings
@@ -41,8 +41,12 @@ async def cmd_chat(message: Message, state: FSMContext) -> None:
     await start_chat_mode(message=message, state=state)
 
 
-async def start_chat_mode(message=None, callback=None, state: FSMContext = None) -> None:
+async def start_chat_mode(callback: CallbackQuery = None, message: Message = None, state: FSMContext = None) -> None:
     """Start chat mode - can be called from /chat or from menu."""
+    if state is None:
+        logger.error("state is None in start_chat_mode")
+        return
+    
     await state.set_state(ChatStates.chatting)
     
     # Exit button
@@ -203,7 +207,7 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == "chat_exit")
-async def cb_chat_exit(callback, state: FSMContext) -> None:
+async def cb_chat_exit(callback: CallbackQuery, state: FSMContext) -> None:
     """Exit chat mode and return to main menu."""
     # Use MenuManager.navigate to return to main menu
     from app.handlers.common import cb_back_to_main
