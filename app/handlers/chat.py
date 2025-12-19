@@ -2,8 +2,6 @@
 
 Allows users to have a normal conversation with AI without
 needing to upload documents. Just ask questions or chat normally.
-
-Uses unified menu system with single message editing.
 """
 
 import logging
@@ -17,7 +15,7 @@ from app.localization import ru
 from app.states.chat import ChatStates
 from app.services.llm.llm_factory import LLMFactory
 from app.utils.text_splitter import TextSplitter
-from app.utils.menu import MenuManager, create_keyboard
+from app.utils.menu import MenuManager
 
 logger = logging.getLogger(__name__)
 
@@ -49,31 +47,20 @@ async def start_chat_mode(callback: CallbackQuery = None, message: Message = Non
     
     await state.set_state(ChatStates.chatting)
     
-    # No buttons - clean chat interface
-    # Users can use /start to exit
-    keyboard = None
-    
     text = f"{ru.CHAT_MODE_TITLE}\n\n{ru.CHAT_MODE_TEXT}"
     
-    # Show menu
+    # Show start message
     if message:
-        await MenuManager.show_menu(
-            message=message,
-            state=state,
-            text=text,
-            keyboard=keyboard,
-            screen_code="chat_mode",
+        await message.answer(
+            text,
+            parse_mode="Markdown",
         )
     elif callback:
-        await MenuManager.navigate(
-            callback=callback,
-            state=state,
-            text=text,
-            keyboard=keyboard,
-            new_state=ChatStates.chatting,
-            screen_code="chat_mode",
-            preserve_data=True,
+        await callback.message.answer(
+            text,
+            parse_mode="Markdown",
         )
+        await callback.answer()
     
     logger.info(f"Chat mode started")
 
@@ -94,28 +81,9 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
     if user_message.startswith("/"):
         return
     
-    # Delete user message
-    try:
-        await message.delete()
-    except:
-        pass
-    
-    # Get menu_message_id for updating
-    data = await state.get_data()
-    menu_message_id = data.get("menu_message_id")
-    chat_id = message.chat.id
-    
-    # Show processing indicator
-    if menu_message_id:
-        try:
-            await message.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=menu_message_id,
-                text=ru.CHAT_PROCESSING,
-                parse_mode="Markdown",
-            )
-        except:
-            pass
+    # DON'T delete user message - keep conversation visible
+    # Show typing indicator
+    await message.bot.send_chat_action(message.chat.id, "typing")
     
     try:
         # Generate response from LLM
@@ -130,79 +98,50 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
         )
         
         if not response:
-            if menu_message_id:
-                await message.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=menu_message_id,
-                    text=ru.CHAT_ERROR,
-                    parse_mode="Markdown",
-                )
+            await message.answer(ru.CHAT_ERROR)
             return
         
-        # Update menu with response
-        splitter = TextSplitter()
-        message_count = splitter.count_messages(response)
+        # Split long messages (Telegram limit is 4096 chars)
+        splitter = TextSplitter(max_length=4000)
+        chunks = splitter.split(response)
         
-        # Prepare response text
-        response_text = f"🤖 *Ответ:*\n\n{response}"
-        
-        # No buttons - clean interface
-        keyboard = None
-        
-        # Update menu
-        if menu_message_id:
+        # Send response in chunks
+        if len(chunks) == 1:
+            # Single message
             try:
-                await message.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=menu_message_id,
-                    text=response_text,
-                    reply_markup=keyboard,
+                await message.answer(
+                    response,
                     parse_mode="Markdown",
                 )
             except Exception as e:
-                logger.warning(f"Failed to edit menu: {e}")
-                # Create new message
-                new_msg = await message.answer(
-                    text=response_text,
-                    reply_markup=keyboard,
-                    parse_mode="Markdown",
-                )
-                await state.update_data(menu_message_id=new_msg.message_id)
+                # If markdown fails, send as plain text
+                logger.warning(f"Markdown failed: {e}, sending as plain text")
+                await message.answer(response)
         else:
-            # Create new message if no menu_message_id
-            new_msg = await message.answer(
-                text=response_text,
-                reply_markup=keyboard,
-                parse_mode="Markdown",
-            )
-            await state.update_data(menu_message_id=new_msg.message_id)
+            # Multiple messages
+            for i, chunk in enumerate(chunks, 1):
+                try:
+                    prefix = f"*[Часть {i}/{len(chunks)}]*\n\n"
+                    await message.answer(
+                        f"{prefix}{chunk}",
+                        parse_mode="Markdown",
+                    )
+                except Exception as e:
+                    # If markdown fails, send as plain text
+                    logger.warning(f"Markdown failed: {e}, sending as plain text")
+                    await message.answer(f"[Часть {i}/{len(chunks)}]\n\n{chunk}")
         
-        logger.info(f"Chat response: {len(response)} chars")
+        logger.info(f"Chat response: {len(response)} chars in {len(chunks)} messages")
     
     except Exception as e:
         logger.error(f"Chat error: {e}")
-        error_text = f"{ru.CHAT_ERROR}\n\n{str(e)[:100]}"
-        
-        # No buttons
-        keyboard = None
-        
-        if menu_message_id:
-            try:
-                await message.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=menu_message_id,
-                    text=error_text,
-                    reply_markup=keyboard,
-                    parse_mode="Markdown",
-                )
-            except:
-                pass
+        await message.answer(
+            f"{ru.CHAT_ERROR}\n\nОшибка: {str(e)[:100]}",
+        )
 
 
 @router.callback_query(F.data == "chat_exit")
 async def cb_chat_exit(callback: CallbackQuery, state: FSMContext) -> None:
     """Exit chat mode and return to main menu."""
-    # Use MenuManager.navigate to return to main menu
     from app.handlers.common import cb_back_to_main
-    
     await cb_back_to_main(callback, state)
