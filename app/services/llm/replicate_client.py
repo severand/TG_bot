@@ -5,7 +5,7 @@ Includes fallback to OpenAI if Replicate fails.
 """
 
 import logging
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Optional, List, Dict, Any
 
 try:
     import replicate
@@ -54,6 +54,61 @@ class ReplicateClient:
         self.client = replicate
         self.api_token = api_token
         self.model = model
+    
+    async def chat(self, messages: List[Dict[str, Any]]) -> str:
+        """Simple chat without documents.
+        
+        Args:
+            messages: List of message dicts with role and content
+            
+        Returns:
+            str: AI response
+            
+        Raises:
+            ReplicateClientError: If API call fails
+            
+        Example:
+            >>> client = ReplicateClient(api_token="...", model="openai/gpt-5")
+            >>> response = await client.chat([
+            ...     {"role": "system", "content": "You are helpful assistant"},
+            ...     {"role": "user", "content": "Hello!"}
+            ... ])
+        """
+        try:
+            # Extract system prompt and user message
+            system_prompt = ""
+            user_message = ""
+            
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_prompt = msg["content"]
+                elif msg["role"] == "user":
+                    user_message = msg["content"]
+            
+            # Build prompt for Replicate
+            full_prompt = f"{system_prompt}\n\nUser: {user_message}\n\nAssistant:"
+            
+            logger.info(f"Calling Replicate {self.model} for chat")
+            
+            # Stream from Replicate
+            input_data = {"prompt": full_prompt}
+            result_parts: List[str] = []
+            
+            for output in self.client.stream(self.model, input=input_data):
+                if output:
+                    result_parts.append(str(output))
+            
+            result = "".join(result_parts)
+            
+            if not result:
+                raise ValueError("Empty response from Replicate")
+            
+            logger.info(f"Chat completed ({len(result)} chars)")
+            return result
+        
+        except Exception as e:
+            logger.error(f"Replicate chat error: {e}")
+            raise ReplicateClientError(f"Replicate API error: {e}") from e
     
     async def analyze_document_stream(
         self,
@@ -142,7 +197,7 @@ class ReplicateClient:
             ValueError: If document is empty
             ReplicateClientError: If API fails
         """
-        result_parts: list[str] = []
+        result_parts: List[str] = []
         
         async for token in self.analyze_document_stream(
             document_text,
@@ -196,7 +251,7 @@ class ReplicateClient:
         )
     
     @staticmethod
-    def get_available_models() -> list[str]:
+    def get_available_models() -> List[str]:
         """Get list of available Replicate models.
         
         Popular models for document analysis:
@@ -206,7 +261,7 @@ class ReplicateClient:
         - nousresearch/nous-hermes-2-mixtral-8x7b-dpo (good balance)
         
         Returns:
-            list[str]: List of recommended models
+            List[str]: List of recommended models
         """
         return [
             "openai/gpt-5",
