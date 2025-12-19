@@ -15,6 +15,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.services.prompts.prompt_manager import PromptManager
 from app.states.prompts import PromptStates
+from app.utils.menu import MenuManager
 
 logger = logging.getLogger(__name__)
 
@@ -83,23 +84,57 @@ def get_manage_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+async def start_prompts_mode(callback: CallbackQuery = None, message: Message = None, state: FSMContext = None) -> None:
+    """Show prompts menu.
+    
+    Can be called from menu or /prompts command.
+    """
+    if state is None:
+        logger.error("state is None in start_prompts_mode")
+        return
+    
+    await state.clear()
+    
+    if message:
+        user_id = message.from_user.id
+        prompt_manager.load_user_prompts(user_id)
+        
+        text = (
+            "🎯 *Prompt Management*\n\n"
+            "Manage your custom analysis prompts. Choose an option:"
+        )
+        
+        await message.answer(
+            text,
+            parse_mode="Markdown",
+            reply_markup=get_main_menu_keyboard(),
+        )
+    elif callback:
+        user_id = callback.from_user.id
+        prompt_manager.load_user_prompts(user_id)
+        
+        text = (
+            "🎯 *Prompt Management*\n\n"
+            "Manage your custom analysis prompts. Choose an option:"
+        )
+        
+        await MenuManager.navigate(
+            callback=callback,
+            state=state,
+            text=text,
+            keyboard=get_main_menu_keyboard(),
+            new_state=None,
+            screen_code="prompts_menu",
+            preserve_data=True,
+        )
+    
+    logger.info(f"Prompts mode started")
+
+
 @router.message(Command("prompts"))
 async def cmd_prompts(message: Message, state: FSMContext) -> None:
     """Show prompts menu."""
-    await state.clear()
-    prompt_manager.load_user_prompts(message.from_user.id)
-    
-    text = (
-        "🎯 *Prompt Management*\n\n"
-        "Manage your custom analysis prompts. Choose an option:"
-    )
-    
-    await message.answer(
-        text,
-        parse_mode="Markdown",
-        reply_markup=get_main_menu_keyboard(),
-    )
-    logger.info(f"User {message.from_user.id} opened prompts menu")
+    await start_prompts_mode(message=message, state=state)
 
 
 @router.callback_query(F.data == "prompts_menu")
@@ -156,7 +191,7 @@ async def cb_prompt_select(query: CallbackQuery) -> None:
     is_custom = prompt_name in prompt_manager.get_user_prompts(user_id)
     
     text = (
-        f"{'✨' if is_custom else '📌'} *{prompt.name.upper()}*\n\n"
+        f"{'\u2728' if is_custom else '\ud83d\udccc'} *{prompt.name.upper()}*\n\n"
         f"_{prompt.description}_\n\n"
         f"*System Prompt:*\n`{prompt.system_prompt[:200]}...`\n\n"
         f"*User Prompt:*\n`{prompt.user_prompt_template[:200]}...`"
