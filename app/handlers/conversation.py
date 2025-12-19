@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 from aiogram import Router, F
+from aiogram.filters import Command
 from aiogram.types import Message, Document, File, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
@@ -34,9 +35,10 @@ llm_factory = LLMFactory(
 )
 
 
-@router.message(F.text == "/analyze")
+@router.message(Command("analyze"))
 async def cmd_analyze(message: Message, state: FSMContext) -> None:
     """Activate document analysis mode."""
+    logger.info(f"User {message.from_user.id} activated /analyze")
     await start_analyze_mode(message=message, state=state)
 
 
@@ -70,14 +72,14 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
             text,
             parse_mode="Markdown",
         )
+        logger.info(f"Analysis mode started for user {message.from_user.id}")
     elif callback:
         await callback.message.answer(
             text,
             parse_mode="Markdown",
         )
         await callback.answer()
-    
-    logger.info(f"Analysis mode started")
+        logger.info(f"Analysis mode started for user {callback.from_user.id}")
 
 
 @router.message(ConversationStates.ready, F.document)
@@ -89,6 +91,8 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
     
     document: Document = message.document
     file_size = document.file_size or 0
+    
+    logger.info(f"User {message.from_user.id} uploading document: {document.file_name} ({file_size} bytes)")
     
     # Validate file size
     if file_size > config.MAX_FILE_SIZE:
@@ -217,6 +221,8 @@ async def handle_analysis_command(message: Message, state: FSMContext) -> None:
         await state.set_state(ConversationStates.ready)
         return
     
+    logger.info(f"User {message.from_user.id} analyzing with instruction: {command[:50]}...")
+    
     # Show typing
     await message.bot.send_chat_action(message.chat.id, "typing")
     
@@ -259,7 +265,7 @@ async def handle_analysis_command(message: Message, state: FSMContext) -> None:
         
         logger.info(
             f"Analysis completed for user {message.from_user.id}: "
-            f"instruction='{command[:30]}...'"
+            f"{len(analysis_result)} chars in {len(chunks)} parts"
         )
     
     except Exception as e:
