@@ -96,8 +96,14 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
     if user_message.startswith("/"):
         return
     
-    # Show typing indicator
+    # Show "typing..." indicator AND status message
     await message.bot.send_chat_action(message.chat.id, "typing")
+    
+    # Send visual progress message
+    progress_msg = await message.answer(
+        "🤔 Думаю над вопросом...",
+        parse_mode="Markdown",
+    )
     
     try:
         # Generate response from LLM
@@ -110,6 +116,9 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
             ),
             use_streaming=False,
         )
+        
+        # Delete progress message
+        await progress_msg.delete()
         
         if not response:
             await message.answer(ru.CHAT_ERROR)
@@ -149,6 +158,12 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
     
     except Exception as e:
         logger.error(f"Chat error: {e}")
+        # Delete progress message on error
+        try:
+            await progress_msg.delete()
+        except:
+            pass
+        
         await message.answer(
             f"{ru.CHAT_ERROR}\n\nОшибка: {str(e)[:100]}",
         )
