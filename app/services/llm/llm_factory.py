@@ -168,6 +168,88 @@ class LLMFactory:
             else:
                 raise
     
+    async def chat(
+        self,
+        user_message: str,
+        system_prompt: Optional[str] = None,
+        use_streaming: bool = False,
+    ) -> str:
+        """Simple chat without documents.
+        
+        For general conversation and Q&A.
+        
+        Args:
+            user_message: User's message
+            system_prompt: Optional system prompt
+            use_streaming: Return streaming (not supported for chat)
+            
+        Returns:
+            str: AI response
+            
+        Raises:
+            ValueError: If no providers available
+            
+        Example:
+            >>> factory = LLMFactory(openai_api_key="sk-...")
+            >>> response = await factory.chat(
+            ...     "Explain quantum computing"
+            ... )
+        """
+        primary = self._get_primary_client()
+        fallback = self._get_fallback_client()
+        
+        if not primary and not fallback:
+            raise ValueError(
+                "No LLM providers available. "
+                "Configure OpenAI or Replicate API keys."
+            )
+        
+        # Build messages for chat
+        messages = [
+            {
+                "role": "system",
+                "content": system_prompt or "You are a helpful assistant.",
+            },
+            {"role": "user", "content": user_message},
+        ]
+        
+        # Try primary provider
+        try:
+            logger.info(f"Chat using {self.primary_provider}")
+            
+            if hasattr(primary, "chat"):
+                return await primary.chat(messages)
+            else:
+                # Fallback to analyze_document if chat not available
+                return await primary.analyze_document(
+                    "",
+                    user_message,
+                    system_prompt,
+                )
+        
+        except Exception as e:
+            logger.warning(
+                f"Primary provider ({self.primary_provider}) failed: {e}. "
+                f"Trying fallback..."
+            )
+            
+            if fallback:
+                try:
+                    logger.info(f"Chat using fallback provider")
+                    if hasattr(fallback, "chat"):
+                        return await fallback.chat(messages)
+                    else:
+                        return await fallback.analyze_document(
+                            "",
+                            user_message,
+                            system_prompt,
+                        )
+                except Exception as e2:
+                    logger.error(f"Fallback provider also failed: {e2}")
+                    raise
+            else:
+                raise
+    
     def set_primary_provider(self, provider: str) -> None:
         """Change primary provider at runtime.
         
