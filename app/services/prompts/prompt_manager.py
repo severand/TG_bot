@@ -7,7 +7,7 @@ Includes storage and retrieval of user prompts.
 import json
 import logging
 from pathlib import Path
-from typing import Optional, Dict, List  # Fixed for Python 3.10
+from typing import Optional, Dict, List
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -93,81 +93,81 @@ class PromptManager:
     - Prompt validation
     """
     
-    # Default system prompts
+    # Default system prompts - ALL IN RUSSIAN
     DEFAULT_PROMPTS = {
         "default": PromptTemplate(
             name="default",
             system_prompt=(
-                "You are an expert document analyst. Your task is to analyze documents "
-                "and provide clear, actionable insights. "
-                "Be concise but thorough. Structure your response with:\n"
-                "1. Executive Summary\n"
-                "2. Key Points\n"
-                "3. Important Details\n"
-                "4. Recommendations (if applicable)"
+                "Ты эксперт по анализу документов. Твоя задача - анализировать документы "
+                "и предоставлять чёткие, практичные insights. "
+                "Будь кратким, но тщательным. Структурируй ответ так:\n"
+                "1. Краткое резюме\n"
+                "2. Ключевые моменты\n"
+                "3. Важные детали\n"
+                "4. Рекомендации (если применимо)"
             ),
-            user_prompt_template="Analyze this document and provide key insights:",
-            description="Default document analysis",
+            user_prompt_template="Проанализируй этот документ и дай ключевые выводы:",
+            description="📄 Базовый анализ документа",
         ),
         "summarize": PromptTemplate(
             name="summarize",
             system_prompt=(
-                "You are a concise summarization expert. "
-                "Create clear, comprehensive summaries that capture the essence "
-                "of documents in minimal text."
+                "Ты эксперт по краткому изложению. "
+                "Создавай чёткие, исчерпывающие резюме, которые передают суть "
+                "документов минимальным текстом."
             ),
-            user_prompt_template="Create a concise summary of this document:",
-            description="Document summarization",
+            user_prompt_template="Создай краткое резюме этого документа:",
+            description="📝 Краткое резюме",
         ),
         "extract_entities": PromptTemplate(
             name="extract_entities",
             system_prompt=(
-                "You are an expert at extracting structured information from documents. "
-                "Identify and list important entities and relationships."
+                "Ты эксперт по извлечению структурированной информации из документов. "
+                "Находи и перечисляй важные сущности и связи."
             ),
             user_prompt_template=(
-                "Extract and list all important entities from this document:\n"
-                "- People (names, roles)\n"
-                "- Organizations\n"
-                "- Dates\n"
-                "- Numbers/monetary amounts\n"
-                "- Technical terms\n"
-                "- Key concepts"
+                "Извлеки и перечисли все важные сущности из этого документа:\n"
+                "- Люди (имена, роли)\n"
+                "- Организации\n"
+                "- Даты\n"
+                "- Числа/суммы\n"
+                "- Технические термины\n"
+                "- Ключевые концепции"
             ),
-            description="Entity extraction",
+            description="🔍 Извлечение данных",
         ),
         "risk_analysis": PromptTemplate(
             name="risk_analysis",
             system_prompt=(
-                "You are a risk management specialist. "
-                "Identify potential risks, issues, and areas of concern in documents."
+                "Ты специалист по управлению рисками. "
+                "Находи потенциальные риски, проблемы и зоны внимания в документах."
             ),
             user_prompt_template=(
-                "Analyze this document and identify:\n"
-                "1. Potential risks or issues\n"
-                "2. Areas of concern\n"
-                "3. Missing information\n"
-                "4. Inconsistencies\n"
-                "5. Recommendations for mitigation"
+                "Проанализируй этот документ и определи:\n"
+                "1. Потенциальные риски или проблемы\n"
+                "2. Зоны внимания\n"
+                "3. Недостающую информацию\n"
+                "4. Несоответствия\n"
+                "5. Рекомендации по снижению рисков"
             ),
-            description="Risk and issue identification",
+            description="⚠️ Анализ рисков",
         ),
         "legal_review": PromptTemplate(
             name="legal_review",
             system_prompt=(
-                "You are an experienced legal analyst. "
-                "Review documents for legal implications, compliance issues, "
-                "and contractual obligations."
+                "Ты опытный юридический аналитик. "
+                "Проверяй документы на юридические последствия, вопросы соответствия "
+                "и договорные обязательства."
             ),
             user_prompt_template=(
-                "Perform a legal review of this document, focusing on:\n"
-                "1. Legal obligations and liabilities\n"
-                "2. Compliance issues\n"
-                "3. Key contractual terms\n"
-                "4. Risk mitigation\n"
-                "5. Recommendations"
+                "Проведи юридическую проверку этого документа, сосредоточься на:\n"
+                "1. Юридические обязательства и ответственность\n"
+                "2. Вопросы соответствия\n"
+                "3. Ключевые договорные условия\n"
+                "4. Снижение рисков\n"
+                "5. Рекомендации"
             ),
-            description="Legal document review",
+            description="⚖️ Юридическая проверка",
         ),
     }
     
@@ -179,7 +179,7 @@ class PromptManager:
         """
         self.storage_dir = storage_dir
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.user_prompts: Dict[int, Dict[str, PromptTemplate]] = {}  # user_id -> prompts
+        self.user_prompts: Dict[int, Dict[str, PromptTemplate]] = {}
         logger.info(f"PromptManager initialized (storage: {storage_dir})")
     
     def get_prompt(
@@ -244,6 +244,46 @@ class PromptManager:
         logger.info(f"Saved prompt '{prompt_name}' for user {user_id}")
         return prompt
     
+    def update_prompt(
+        self,
+        user_id: int,
+        prompt_name: str,
+        system_prompt: Optional[str] = None,
+        user_prompt_template: Optional[str] = None,
+    ) -> bool:
+        """Update existing prompt.
+        
+        Args:
+            user_id: User ID
+            prompt_name: Prompt name
+            system_prompt: New system prompt (optional)
+            user_prompt_template: New user prompt (optional)
+            
+        Returns:
+            bool: True if updated, False if not found
+        """
+        prompt = self.get_prompt(user_id, prompt_name)
+        if not prompt:
+            return False
+        
+        # Update fields
+        if system_prompt:
+            prompt.system_prompt = system_prompt
+        if user_prompt_template:
+            prompt.user_prompt_template = user_prompt_template
+        
+        prompt.updated_at = datetime.now().isoformat()
+        
+        # Save updated prompt
+        if user_id not in self.user_prompts:
+            self.user_prompts[user_id] = {}
+        
+        self.user_prompts[user_id][prompt_name] = prompt
+        self._save_user_prompts(user_id)
+        
+        logger.info(f"Updated prompt '{prompt_name}' for user {user_id}")
+        return True
+    
     def delete_prompt(
         self,
         user_id: int,
@@ -306,7 +346,7 @@ class PromptManager:
             return
         
         try:
-            with open(user_file, "r") as f:
+            with open(user_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             
             self.user_prompts[user_id] = {
@@ -335,8 +375,8 @@ class PromptManager:
                 for name, prompt in self.user_prompts[user_id].items()
             }
             
-            with open(user_file, "w") as f:
-                json.dump(data, f, indent=2)
+            with open(user_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
             
             logger.debug(f"Persisted {len(data)} prompts for user {user_id}")
         
