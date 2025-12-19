@@ -1,334 +1,443 @@
-# Uh Bot - Document Analysis Telegram Bot
+# 🤖 Promt Bot - Intelligent Document Analysis Telegram Bot
 
-🤖 An intelligent Telegram bot for document analysis using OpenAI GPT-5 (with GPT-4o fallback).
+> Мощный Telegram-бот для анализа документов с использованием GPT-4o-mini и кастомных промптов
 
-## Features
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://core.telegram.org/bots)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o--mini-green.svg)](https://openai.com/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-✨ **Multiple Document Formats**
-- PDF files
-- Microsoft Word documents (DOCX)
-- Plain text files
-- ZIP archives (with multiple files)
+---
 
-🧠 **AI-Powered Analysis**
-- Document summarization
-- Key point extraction
-- Risk and issue identification
-- Named entity extraction
-- Custom analysis with your prompts
+## ✨ Основные возможности
 
-📱 **Telegram Integration**
-- Easy file upload via Telegram
-- Real-time processing status
-- Automatic message splitting for long responses
-- Word document generation for very long results
+### 💬 Три режима работы
 
-🔒 **Security & Privacy**
-- Automatic cleanup of temporary files
-- Protection against zip bombs and malicious archives
-- No data stored on servers
-- Secure path traversal prevention
+#### 1. **Режим диалога** (`/chat`)
+- Обычное общение с AI помощником
+- Ответы на любые вопросы
+- Визуальный индикатор "🤔 Думаю над вопросом..."
+- Поддержка длинных ответов (автоматическое разбиение)
+- **Активен по умолчанию после /start**
 
-## Prerequisites
+#### 2. **Режим анализа документов** (`/analyze`)
+- Загрузка и анализ документов:
+  - 📄 PDF файлы
+  - 📝 Microsoft Word (DOCX)
+  - 📋 Текстовые файлы (TXT)
+  - 🗜️ ZIP архивы (с множеством файлов)
+- Интеллектуальный анализ с использованием кастомных промптов
+- Извлечение ключевой информации
+- Анализ рисков и проблем
+- Автоматическая генерация резюме
 
-- Python 3.11+
-- Telegram Bot Token (from [@BotFather](https://t.me/botfather))
-- OpenAI API Key
+#### 3. **Управление промптами** (`/prompts`)
+- 5 встроенных профессиональных промптов:
+  - 📄 **Базовый анализ** - универсальный анализ документов
+  - 📝 **Краткое резюме** - создание сжатых резюме
+  - 🔍 **Извлечение данных** - поиск сущностей (имена, даты, суммы)
+  - ⚠️ **Анализ рисков** - выявление проблем и рисков
+  - ⚖️ **Юридическая проверка** - анализ договоров и соглашений
+- Создание собственных промптов
+- Редактирование промптов (системный + пользовательский)
+- Установка промпта по умолчанию
+- Удаление пользовательских промптов
 
-## Installation
+---
 
-### 1. Clone the repository
+## 🚀 Быстрый старт
+
+### Требования
+- Python 3.10+
+- Telegram Bot Token ([получить от @BotFather](https://t.me/botfather))
+- Replicate API Token ([получить на replicate.com](https://replicate.com))
+
+### Установка
 
 ```bash
+# 1. Клонируем репозиторий
 git clone https://github.com/severand/TG_bot.git
 cd TG_bot
-```
 
-### 2. Create virtual environment
-
-```bash
+# 2. Создаём виртуальное окружение
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-### 3. Install dependencies
-
-```bash
+# 3. Устанавливаем зависимости
 pip install -e .
-```
 
-### 4. Configure environment variables
-
-```bash
+# 4. Настраиваем переменные окружения
 cp .env.example .env
-# Edit .env and add your tokens
+nano .env  # Или открой в любом редакторе
 ```
 
-Required variables:
-- `TG_BOT_TOKEN` - Your Telegram Bot Token
-- `OPENAI_API_KEY` - Your OpenAI API Key
+### Настройка `.env`
 
-Optional variables:
-- `OPENAI_MODEL` - Model to use (default: gpt-4o)
-- `LOG_LEVEL` - Logging level (default: INFO)
-- `MAX_FILE_SIZE` - Maximum file size in bytes (default: 20MB)
-- `MAX_ARCHIVE_SIZE` - Maximum ZIP archive size (default: 100MB)
-- `TEMP_DIR` - Temporary directory (default: ./temp)
+```env
+# Telegram Bot Token (обязательно)
+TG_BOT_TOKEN=your_telegram_bot_token_here
 
-## Running the Bot
+# Replicate Configuration (обязательно)
+REPLICATE_API_TOKEN=your_replicate_api_token_here
+REPLICATE_MODEL=openai/gpt-4o-mini
 
-### Development
+# Primary LLM Provider
+LLM_PROVIDER=replicate
+
+# Optional: OpenAI Configuration (резервный вариант)
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4o
+
+# Logging
+LOG_LEVEL=INFO
+
+# File Limits
+MAX_FILE_SIZE=20971520        # 20 MB
+MAX_ARCHIVE_SIZE=104857600    # 100 MB
+
+# Directories
+TEMP_DIR=./temp
+```
+
+### Запуск
 
 ```bash
 python main.py
 ```
 
-The bot will start polling for updates.
+Бот начнёт работу и будет готов принимать команды!
 
-### Docker (with Cog)
+---
 
-```bash
-cog push your-registry/tg-bot:latest
+## 📱 Использование
+
+### Базовые команды
+
+```
+/start   - Запустить бота (активирует режим диалога)
+/chat    - Режим обычного общения с AI
+/analyze - Режим анализа документов
+/prompts - Управление промптами
+/help    - Показать справку
+/cancel  - Отменить текущую операцию
 ```
 
-## Project Structure
+### Примеры использования
+
+#### 🗣️ Обычный диалог
+```
+1. /start или /chat
+2. Напиши: "Объясни что такое blockchain"
+3. Получи подробный ответ
+```
+
+#### 📄 Анализ документа
+```
+1. /analyze
+2. Загрузи PDF/DOCX/TXT файл
+3. Бот автоматически проанализирует
+4. Получи структурированный анализ
+```
+
+#### 🎯 Использование кастомных промптов
+```
+1. /prompts
+2. "Просмотреть промпты"
+3. Выбери "⚖️ Юридическая проверка"
+4. "✅ Использовать по умолчанию"
+5. Теперь все документы анализируются как юридические!
+```
+
+#### ✏️ Создание своего промпта
+```
+1. /prompts
+2. "➕ Создать новый"
+3. Введи имя: "financial_analysis"
+4. Введи системный промпт: "Ты финансовый аналитик..."
+5. Введи промпт пользователя: "Проанализируй финансовые показатели..."
+6. Готово! Промпт создан
+```
+
+---
+
+## 🏗️ Архитектура проекта
 
 ```
 TG_bot/
 ├── app/
-│   ├── config.py                 # Configuration management
-│   ├── bot.py                    # Bot initialization
-│   ├── filters/                  # Custom filters
-│   ├── handlers/
-│   │   ├── common.py            # /start, /help, /cancel
-│   │   └── documents.py         # File upload and analysis
-│   ├── states/
-│   │   └── analysis.py          # FSM states
-│   ├── services/
+│   ├── config.py                    # Конфигурация
+│   ├── bot.py                       # Инициализация бота
+│   ├── localization.py              # Локализация (русский)
+│   │
+│   ├── handlers/                    # Обработчики команд
+│   │   ├── common.py               # /start, /help, /cancel
+│   │   ├── chat.py                 # Режим диалога
+│   │   ├── conversation.py         # /analyze режим
+│   │   ├── prompts.py              # Управление промптами
+│   │   └── documents.py            # Загрузка файлов
+│   │
+│   ├── states/                      # FSM состояния
+│   │   ├── analysis.py
+│   │   ├── chat.py
+│   │   └── prompts.py
+│   │
+│   ├── services/                    # Бизнес-логика
 │   │   ├── file_processing/
-│   │   │   ├── pdf_parser.py
-│   │   │   ├── docx_parser.py
-│   │   │   ├── zip_handler.py
-│   │   │   └── converter.py
-│   │   └── llm/
-│   │       └── openai_client.py
-│   └── utils/
-│       ├── text_splitter.py
-│       └── cleanup.py
-├── tests/
-├── main.py                       # Entry point
-├── pyproject.toml               # Dependencies and tools config
-└── README.md
+│   │   │   ├── pdf_parser.py       # Парсинг PDF
+│   │   │   ├── docx_parser.py      # Парсинг DOCX
+│   │   │   ├── txt_parser.py       # Парсинг TXT
+│   │   │   ├── zip_handler.py      # Обработка ZIP
+│   │   │   └── converter.py        # Конвертация в DOCX
+│   │   │
+│   │   ├── llm/                     # AI интеграция
+│   │   │   ├── llm_factory.py      # Фабрика LLM клиентов
+│   │   │   ├── openai_client.py    # OpenAI клиент
+│   │   │   └── replicate_client.py # Replicate клиент
+│   │   │
+│   │   └── prompts/                 # Система промптов
+│   │       └── prompt_manager.py   # Управление промптами
+│   │
+│   ├── utils/                       # Утилиты
+│   │   ├── text_splitter.py        # Разбиение текста
+│   │   └── cleanup.py              # Очистка файлов
+│   │
+│   └── filters/                     # Кастомные фильтры
+│
+├── data/                            # Данные
+│   └── prompts/                    # Пользовательские промпты
+│
+├── temp/                            # Временные файлы
+│
+├── tests/                           # Тесты
+│
+├── main.py                          # Точка входа
+├── pyproject.toml                   # Зависимости
+├── .env.example                     # Пример конфигурации
+└── README.md                        # Эта документация
 ```
-
-## Usage
-
-### Start the bot
-```
-/start - Initialize the bot
-/help - Show help information
-/cancel - Cancel current operation
-```
-
-### Upload and analyze
-1. Send any document (PDF, DOCX, TXT, or ZIP)
-2. Bot will extract content
-3. AI will analyze and provide insights
-4. Results sent as text messages or Word document if too long
-
-## API Integration
-
-### OpenAI
-
-The bot uses OpenAI's GPT-5 (or GPT-4o as fallback) for analysis.
-
-- Max response tokens: 4000
-- Temperature: 0.7 (balanced creativity)
-- Supports system prompts for custom analysis
-
-### Telegram
-
-- File size limit: 20MB
-- Message size limit: 4096 characters (handled automatically)
-- Uses polling for updates (not webhooks)
-
-## File Processing
-
-### PDF
-- Text extraction using pypdf
-- Page-by-page processing
-- Metadata extraction
-
-### DOCX
-- Text extraction from paragraphs and tables
-- Formatting preservation
-- Metadata extraction
-
-### ZIP Archives
-- Automatic extraction of supported formats
-- Zip bomb detection and prevention
-- Compression ratio validation
-- Path traversal attack prevention
-
-### Security Features
-
-- **Zip Bomb Protection**: Validates compression ratios and extracted size
-- **Path Traversal Prevention**: Normalizes file paths
-- **File Size Limits**: Enforces both file and archive size limits
-- **File Type Validation**: Only processes supported formats
-
-## Testing
-
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/
-
-# With coverage
-pytest --cov=app tests/
-
-# Linting
-ruff check app/
-
-# Type checking
-mypy app/
-```
-
-## Error Handling
-
-The bot gracefully handles:
-- Corrupted files
-- API rate limiting
-- Network timeouts
-- Invalid file formats
-- Oversized files
-- Empty documents
-
-## Performance
-
-- Cold start: < 5 seconds
-- File processing: 5-15 seconds (depending on file size)
-- AI analysis: 10-30 seconds (depends on OpenAI)
-- Total response time: < 60 seconds for most files
-
-## Monitoring and Logging
-
-- Structured logging with structlog
-- All operations logged
-- Error tracking with detailed context
-- Performance metrics available
-
-## Deployment
-
-### Replicate (Cog)
-
-The project includes `cog.yaml` for Replicate deployment.
-
-```bash
-cog push your-registry/tg-bot
-```
-
-### VPS / Docker
-
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY . .
-RUN pip install -e .
-CMD ["python", "main.py"]
-```
-
-### Environment-specific config
-
-Update `.env` for your deployment:
-- Development: `LOG_LEVEL=DEBUG`
-- Production: `LOG_LEVEL=INFO`
-
-## Troubleshooting
-
-### Bot doesn't respond
-1. Check `TG_BOT_TOKEN` is correct
-2. Check internet connection
-3. Review logs: `LOG_LEVEL=DEBUG`
-
-### "Invalid API key" error
-1. Verify `OPENAI_API_KEY` is correct
-2. Check API key has access to your model
-3. Verify quota/billing in OpenAI dashboard
-
-### File processing fails
-1. Ensure file format is supported
-2. Check file is not corrupted
-3. Verify file is under size limit
-4. Check temp directory has write permissions
-
-## Architecture
-
-### Clean Architecture
-
-The project follows Clean Architecture principles:
-
-- **Handlers Layer**: User interface (Telegram)
-- **Services Layer**: Business logic (file processing, AI)
-- **Utils Layer**: Infrastructure (cleanup, text splitting)
-- **Config Layer**: Configuration management
-
-### Async/Await
-
-Fully asynchronous using `asyncio`:
-- Non-blocking I/O operations
-- Efficient concurrent request handling
-- Better scalability
-
-### FSM (Finite State Machine)
-
-Manages user conversation flow:
-- `waiting_for_file`: Ready to receive files
-- `processing`: Currently processing
-- `analyzing`: Sending to AI
-
-## Security Considerations
-
-✅ Input validation for all file uploads
-✅ Protection against zip bombs
-✅ Secure temporary file handling
-✅ API key stored in environment variables
-✅ No logs contain sensitive data
-✅ Automatic cleanup of user files
-
-## Contributing
-
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-## License
-
-MIT License - See LICENSE file for details
-
-## Support
-
-For issues and questions:
-- Open an issue on GitHub
-- Check existing issues for solutions
-- Review documentation
-
-## Changelog
-
-### v1.0.0 (2025-12-19)
-- Initial release
-- PDF, DOCX, TXT, ZIP support
-- OpenAI GPT integration
-- Telegram bot integration
-- Security features (zip bomb protection)
-- Complete error handling
 
 ---
 
-**Made with ❤️ by the Uh Bot Team**
+## 💰 Стоимость и производительность
+
+### Модель: GPT-4o-mini (через Replicate)
+
+| Параметр | Значение |
+|----------|----------|
+| **Цена вход** | $0.15 / 1M токенов |
+| **Цена выход** | $0.60 / 1M токенов |
+| **Скорость** | ~2 секунды на запрос |
+| **Экономия vs GPT-4o** | **94%** 💰 |
+
+### Производительность
+
+- ⚡ Cold start: < 5 секунд
+- 📄 Обработка PDF: 5-15 секунд
+- 🤖 AI анализ: 2-10 секунд
+- 📊 Общее время: < 30 секунд
+
+### Пример расчёта стоимости
+
+**Анализ документа (10k токенов входных + 1k токенов выходных):**
+- Вход: 10,000 × $0.15 / 1M = $0.0015
+- Выход: 1,000 × $0.60 / 1M = $0.0006
+- **Итого: $0.0021** (меньше цента!)
+
+---
+
+## 🔒 Безопасность
+
+### Реализованные меры защиты
+
+✅ **Защита от Zip Bomb**
+- Проверка коэффициента сжатия
+- Лимит на размер распакованных файлов
+- Детектирование подозрительных архивов
+
+✅ **Защита от Path Traversal**
+- Нормализация путей файлов
+- Валидация имён файлов
+- Защита от выхода за пределы temp директории
+
+✅ **Валидация файлов**
+- Проверка MIME типов
+- Лимиты на размер файлов
+- Поддержка только безопасных форматов
+
+✅ **Безопасное хранение**
+- API ключи в переменных окружения
+- Автоматическая очистка временных файлов
+- Отсутствие логов с чувствительными данными
+
+✅ **Изоляция пользователей**
+- Персональные промпты для каждого пользователя
+- Раздельное хранение данных
+- Отсутствие доступа к чужим файлам
+
+---
+
+## 🧪 Тестирование
+
+```bash
+# Установка dev зависимостей
+pip install -e ".[dev]"
+
+# Запуск тестов
+pytest tests/
+
+# С покрытием кода
+pytest --cov=app tests/
+
+# Линтинг
+ruff check app/
+
+# Проверка типов
+mypy app/
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### Бот не отвечает
+
+**Проблема:** Бот не реагирует на команды
+
+**Решение:**
+1. Проверь `TG_BOT_TOKEN` в `.env`
+2. Убедись что бот запущен: `python main.py`
+3. Проверь логи: `LOG_LEVEL=DEBUG python main.py`
+
+### Ошибка API ключа
+
+**Проблема:** `Invalid API key`
+
+**Решение:**
+1. Проверь `REPLICATE_API_TOKEN` в `.env`
+2. Убедись что токен активен на [replicate.com](https://replicate.com)
+3. Проверь баланс аккаунта
+
+### Кнопки не работают
+
+**Проблема:** Нажатие на кнопки не работает
+
+**Решение:**
+1. Перезапусти бота
+2. Отправь `/start` заново
+3. Очисть кэш Telegram: Settings → Data and Storage → Clear Cache
+
+### Меню не появляется в веб-версии
+
+**Проблема:** В Telegram Web нет меню команд
+
+**Решение:**
+1. Ctrl+Shift+R (hard reload)
+2. Очисти кэш браузера
+3. Открой в режиме инкогнито
+4. Используй мобильное приложение
+
+---
+
+## 📈 Changelog
+
+### v2.0.0 (2025-12-19) - Major Update
+
+#### ✨ Новые возможности
+- ✅ **Три режима работы**: диалог, анализ, управление промптами
+- ✅ **GPT-4o-mini интеграция**: экономия 94% на токенах
+- ✅ **Система промптов**: 5 встроенных + создание своих
+- ✅ **Редактирование промптов**: полноценное управление
+- ✅ **Визуальный прогресс**: "🤔 Думаю над вопросом..."
+- ✅ **Полная русификация**: все интерфейсы на русском
+- ✅ **Улучшенная навигация**: интуитивные меню
+
+#### 🔧 Исправления
+- Fixed: Порядок регистрации роутеров
+- Fixed: Обработчики редактирования промптов
+- Fixed: Меню команд в Telegram
+- Fixed: Индикатор "typing" в чате
+- Fixed: Дефолтный режим после /start
+
+#### 📚 Документация
+- Complete README с примерами
+- Описание всех режимов работы
+- Troubleshooting гайд
+- Архитектура проекта
+
+### v1.0.0 (2025-12-19) - Initial Release
+- Basic document analysis
+- PDF, DOCX, TXT, ZIP support
+- OpenAI GPT integration
+- Security features
+
+---
+
+## 🤝 Contributing
+
+Мы приветствуем ваши PR!
+
+### Как внести вклад
+
+1. Fork репозиторий
+2. Создай feature branch: `git checkout -b feature/amazing-feature`
+3. Commit изменения: `git commit -m 'Add amazing feature'`
+4. Push в branch: `git push origin feature/amazing-feature`
+5. Открой Pull Request
+
+### Guidelines
+
+- Пиши тесты для новых функций
+- Следуй существующему стилю кода
+- Обновляй документацию
+- Добавляй docstrings
+
+---
+
+## 📜 License
+
+MIT License - see [LICENSE](LICENSE) file for details
+
+---
+
+## 🙏 Благодарности
+
+- [Telegram Bot API](https://core.telegram.org/bots) - за отличное API
+- [OpenAI](https://openai.com/) - за GPT модели
+- [Replicate](https://replicate.com/) - за доступ к моделям
+- [aiogram](https://docs.aiogram.dev/) - за async Telegram framework
+
+---
+
+## 📞 Support
+
+- 🐛 **Bug reports**: [GitHub Issues](https://github.com/severand/TG_bot/issues)
+- 💡 **Feature requests**: [GitHub Issues](https://github.com/severand/TG_bot/issues)
+- 📧 **Email**: support@example.com
+- 💬 **Telegram**: [@your_support_channel](https://t.me/your_channel)
+
+---
+
+## 🌟 Roadmap
+
+### Планируемые фичи
+
+- [ ] **RAG с векторной БД** - база знаний с semantic search
+- [ ] **Режим /knowledge** - загрузка множества документов
+- [ ] **Поддержка изображений** - анализ графиков и диаграмм
+- [ ] **Голосовые сообщения** - транскрипция и анализ
+- [ ] **Экспорт результатов** - PDF, Excel, CSV
+- [ ] **Multi-user режим** - командная работа
+- [ ] **API endpoints** - интеграция с внешними системами
+- [ ] **Web interface** - веб-версия бота
+
+---
+
+<div align="center">
+
+### Made with ❤️ by Andrey & Claude
+
+**⭐ Star us on GitHub — it motivates us a lot!**
+
+[Report Bug](https://github.com/severand/TG_bot/issues) · [Request Feature](https://github.com/severand/TG_bot/issues) · [Documentation](https://github.com/severand/TG_bot/wiki)
+
+</div>
