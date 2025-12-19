@@ -10,7 +10,6 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.services.prompts.prompt_manager import PromptManager
@@ -28,7 +27,7 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="📝 Просмотреть промпты", callback_data="prompts_list")
     builder.button(text="➕ Создать новый", callback_data="prompt_create")
-    builder.adjust(2)  # 2 кнопки в ряд
+    builder.adjust(2)
     return builder.as_markup()
 
 
@@ -41,8 +40,7 @@ def get_prompts_list_keyboard(user_id: int) -> InlineKeyboardMarkup:
     
     for name in sorted(prompts.keys()):
         prompt = prompts[name]
-        is_custom = name in user_prompts
-        # Убрали значки, оставили только текст
+        # Короткое описание
         button_text = f"{prompt.description[:30]}..."
         builder.button(
             text=button_text,
@@ -50,19 +48,19 @@ def get_prompts_list_keyboard(user_id: int) -> InlineKeyboardMarkup:
         )
     
     builder.button(text="« Назад", callback_data="prompts_menu")
-    builder.adjust(2)  # 2 кнопки в ряд
+    builder.adjust(2)
     return builder.as_markup()
 
 
 def get_prompt_detail_keyboard(prompt_name: str, is_custom: bool) -> InlineKeyboardMarkup:
     """Keyboard for prompt details."""
     builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Использовать по умолчанию", callback_data=f"prompt_set_default_{prompt_name}")
     builder.button(text="✏️ Редактировать", callback_data=f"prompt_edit_{prompt_name}")
     if is_custom:
         builder.button(text="🗑️ Удалить", callback_data=f"prompt_delete_{prompt_name}")
-    builder.button(text="📝 По умолчанию", callback_data=f"prompt_set_default_{prompt_name}")
     builder.button(text="« Назад", callback_data="prompts_list")
-    builder.adjust(2)  # 2 кнопки в ряд
+    builder.adjust(2)
     return builder.as_markup()
 
 
@@ -77,15 +75,12 @@ def get_manage_keyboard(user_id: int) -> InlineKeyboardMarkup:
     
     builder.button(text="➕ Создать новый", callback_data="prompt_create")
     builder.button(text="« Назад", callback_data="prompts_menu")
-    builder.adjust(2)  # 2 кнопки в ряд
+    builder.adjust(2)
     return builder.as_markup()
 
 
 async def start_prompts_mode(callback: CallbackQuery = None, message: Message = None, state: FSMContext = None) -> None:
-    """Show prompts menu.
-    
-    Can be called from menu or /prompts command.
-    """
+    """Show prompts menu with instructions."""
     if state is None:
         logger.error("state is None in start_prompts_mode")
         return
@@ -94,7 +89,20 @@ async def start_prompts_mode(callback: CallbackQuery = None, message: Message = 
     
     text = (
         "🎯 *Управление промптами*\n\n"
-        "Управляйте своими промптами для анализа. Выберите действие:"
+        "💡 *Что такое промпт?*\n"
+        "Промпт - это инструкция для ИИ, как анализировать документы.\n\n"
+        "📝 *Как работать:*\n"
+        "1️⃣ *Просмотреть* - увидеть все доступные промпты\n"
+        "2️⃣ *Выбрать* промпт из списка\n"
+        "3️⃣ *Использовать по умолчанию* - активировать промпт\n"
+        "4️⃣ *Создать новый* - сделать свой промпт\n"
+        "5️⃣ *Редактировать* - изменить промпт\n\n"
+        "🎯 *Пример использования:*\n"
+        "• Нажмите 'Просмотреть промпты'\n"
+        "• Выберите 'default' (стандартный)\n"
+        "• Нажмите 'Использовать по умолчанию'\n"
+        "• Теперь все анализы будут с этим промптом!\n\n"
+        "👇 Выберите действие:"
     )
     
     if message:
@@ -111,7 +119,6 @@ async def start_prompts_mode(callback: CallbackQuery = None, message: Message = 
         user_id = callback.from_user.id
         prompt_manager.load_user_prompts(user_id)
         
-        # Просто отправляем новое сообщение
         await callback.message.answer(
             text,
             parse_mode="Markdown",
@@ -135,7 +142,7 @@ async def cb_prompts_menu(query: CallbackQuery, state: FSMContext) -> None:
     
     text = (
         "🎯 *Управление промптами*\n\n"
-        "Управляйте своими промптами для анализа. Выберите действие:"
+        "👇 Выберите действие:"
     )
     
     await query.message.edit_text(
@@ -155,7 +162,7 @@ async def cb_prompts_list(query: CallbackQuery) -> None:
     
     text = (
         f"📝 *Доступные промпты* (всего: {len(prompts)})\n\n"
-        f"Выберите промпт для просмотра деталей:"
+        f"👉 Нажмите на промпт чтобы увидеть детали:"
     )
     
     await query.message.edit_text(
@@ -183,7 +190,8 @@ async def cb_prompt_select(query: CallbackQuery) -> None:
         f"📝 *{prompt.name.upper()}*\n\n"
         f"_{prompt.description}_\n\n"
         f"*Системный промпт:*\n`{prompt.system_prompt[:200]}...`\n\n"
-        f"*Промпт пользователя:*\n`{prompt.user_prompt_template[:200]}...`"
+        f"*Промпт пользователя:*\n`{prompt.user_prompt_template[:200]}...`\n\n"
+        f"👇 Что хотите сделать?"
     )
     
     await query.message.edit_text(
@@ -317,7 +325,6 @@ async def msg_user_prompt(message: Message, state: FSMContext) -> None:
 async def cb_prompt_delete(query: CallbackQuery, state: FSMContext) -> None:
     """Delete prompt with confirmation."""
     if query.data == "prompt_delete_menu":
-        # Show menu to select which custom prompt to delete
         user_prompts = prompt_manager.get_user_prompts(query.from_user.id)
         
         builder = InlineKeyboardBuilder()
@@ -327,7 +334,7 @@ async def cb_prompt_delete(query: CallbackQuery, state: FSMContext) -> None:
                 callback_data=f"prompt_delete_confirm_{name}"
             )
         builder.button(text="« Отмена", callback_data="prompts_manage")
-        builder.adjust(2)  # 2 кнопки в ряд
+        builder.adjust(2)
         
         text = "🗑️ *Выберите промпт для удаления:*"
         await query.message.edit_text(
@@ -336,7 +343,6 @@ async def cb_prompt_delete(query: CallbackQuery, state: FSMContext) -> None:
             reply_markup=builder.as_markup(),
         )
     else:
-        # Confirm deletion
         prompt_name = query.data.replace("prompt_delete_confirm_", "")
         
         builder = InlineKeyboardBuilder()
@@ -398,7 +404,7 @@ async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
         callback_data=f"prompt_edit_user_{prompt_name}"
     )
     builder.button(text="« Назад", callback_data=f"prompt_select_{prompt_name}")
-    builder.adjust(2)  # 2 кнопки в ряд
+    builder.adjust(2)
     
     text = f"✏️ *Редактировать промпт: {prompt_name}*\n\nВыберите, что редактировать:"
     
