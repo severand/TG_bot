@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 from aiogram import Router, F
-from aiogram.types import Message, Document, File, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, Document, File, InlineKeyboardMarkup, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -23,6 +23,7 @@ from app.services.llm.llm_factory import LLMFactory
 from app.services.prompts.prompt_manager import PromptManager
 from app.utils.text_splitter import TextSplitter
 from app.utils.cleanup import CleanupManager
+from app.utils.menu import MenuManager, create_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -54,12 +55,15 @@ def get_start_menu() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-@router.message(F.text == "/analyze")
-async def cmd_analyze(message: Message, state: FSMContext) -> None:
+async def start_analyze_mode(callback: CallbackQuery = None, message: Message = None, state: FSMContext = None) -> None:
     """Start interactive document analysis mode.
     
-    /analyze - Активирует режим анализа документов
+    Can be called from menu or /analyze command.
     """
+    if state is None:
+        logger.error("state is None in start_analyze_mode")
+        return
+    
     await state.set_state(ConversationStates.ready)
     
     text = (
@@ -78,12 +82,35 @@ async def cmd_analyze(message: Message, state: FSMContext) -> None:
         "Ready? Upload your document or choose an action below."
     )
     
-    await message.answer(
-        text,
-        parse_mode="Markdown",
-        reply_markup=get_start_menu(),
-    )
-    logger.info(f"User {message.from_user.id} started analysis mode")
+    keyboard = get_start_menu()
+    
+    if message:
+        await message.answer(
+            text,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+    elif callback:
+        await MenuManager.navigate(
+            callback=callback,
+            state=state,
+            text=text,
+            keyboard=keyboard,
+            new_state=ConversationStates.ready,
+            screen_code="analyze_mode",
+            preserve_data=True,
+        )
+    
+    logger.info(f"Analysis mode started")
+
+
+@router.message(F.text == "/analyze")
+async def cmd_analyze(message: Message, state: FSMContext) -> None:
+    """Start interactive document analysis mode.
+    
+    /analyze - Активирует режим анализа документов
+    """
+    await start_analyze_mode(message=message, state=state)
 
 
 @router.message(ConversationStates.ready, F.document)
