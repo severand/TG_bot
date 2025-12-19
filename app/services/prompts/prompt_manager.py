@@ -7,7 +7,7 @@ Includes storage and retrieval of user prompts.
 import json
 import logging
 from pathlib import Path
-from typing import Optional, dict, list
+from typing import Optional, Dict, List  # Fixed for Python 3.10
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -47,11 +47,11 @@ class PromptTemplate:
         self.created_at = datetime.now().isoformat()
         self.updated_at = datetime.now().isoformat()
     
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict:
         """Convert to dictionary for storage.
         
         Returns:
-            dict: Prompt data
+            Dict: Prompt data
         """
         return {
             "name": self.name,
@@ -63,7 +63,7 @@ class PromptTemplate:
         }
     
     @classmethod
-    def from_dict(cls, data: dict) -> "PromptTemplate":
+    def from_dict(cls, data: Dict) -> "PromptTemplate":
         """Create from dictionary.
         
         Args:
@@ -179,7 +179,7 @@ class PromptManager:
         """
         self.storage_dir = storage_dir
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.user_prompts: dict[int, dict[str, PromptTemplate]] = {}  # user_id -> prompts
+        self.user_prompts: Dict[int, Dict[str, PromptTemplate]] = {}  # user_id -> prompts
         logger.info(f"PromptManager initialized (storage: {storage_dir})")
     
     def get_prompt(
@@ -265,7 +265,7 @@ class PromptManager:
             return True
         return False
     
-    def list_prompts(self, user_id: int) -> dict[str, PromptTemplate]:
+    def list_prompts(self, user_id: int) -> Dict[str, PromptTemplate]:
         """List all available prompts for user.
         
         Includes both user prompts and defaults.
@@ -274,7 +274,7 @@ class PromptManager:
             user_id: User ID
             
         Returns:
-            dict: Available prompts {name: template}
+            Dict: Available prompts {name: template}
         """
         all_prompts = dict(self.DEFAULT_PROMPTS)
         
@@ -283,14 +283,14 @@ class PromptManager:
         
         return all_prompts
     
-    def get_user_prompts(self, user_id: int) -> dict[str, PromptTemplate]:
+    def get_user_prompts(self, user_id: int) -> Dict[str, PromptTemplate]:
         """Get only user-created prompts.
         
         Args:
             user_id: User ID
             
         Returns:
-            dict: User prompts
+            Dict: User prompts
         """
         return self.user_prompts.get(user_id, {})
     
