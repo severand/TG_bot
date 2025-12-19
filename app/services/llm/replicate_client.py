@@ -29,13 +29,13 @@ class ReplicateClient:
     
     Attributes:
         api_token: Replicate API token
-        model: Model name (e.g., "openai/gpt-5" or "mistral-community/mistral-7b-instruct-v0.1")
+        model: Model name (e.g., "openai/gpt-4o-mini" or "openai/gpt-5")
     """
     
     def __init__(
         self,
         api_token: str,
-        model: str = "openai/gpt-5",
+        model: str = "openai/gpt-4o-mini",
     ) -> None:
         """Initialize Replicate client.
         
@@ -44,7 +44,7 @@ class ReplicateClient:
             model: Model identifier on Replicate
             
         Raises:
-            ImportError: If replicate library is not installed
+            ImportError: If replicate library not installed
         """
         if not replicate:
             raise ImportError(
@@ -53,7 +53,6 @@ class ReplicateClient:
             )
         
         # CRITICAL: Set the API token as environment variable
-        # This is how the replicate library expects to receive auth
         os.environ["REPLICATE_API_TOKEN"] = api_token
         
         self.client = replicate
@@ -61,6 +60,45 @@ class ReplicateClient:
         self.model = model
         
         logger.info(f"Replicate client initialized with model: {model}")
+    
+    def _get_model_input(
+        self,
+        prompt: str,
+        system_prompt: str = "You are a helpful assistant.",
+        temperature: float = 1.0,
+        max_tokens: int = 4096,
+    ) -> Dict[str, Any]:
+        """Build input parameters for the model.
+        
+        Args:
+            prompt: User prompt
+            system_prompt: System instructions
+            temperature: Sampling temperature (0-2)
+            max_tokens: Maximum completion tokens
+            
+        Returns:
+            Dict with model-specific parameters
+        """
+        # GPT-4o-mini uses OpenAI-style parameters
+        if "gpt-4o-mini" in self.model or "gpt-4o" in self.model:
+            return {
+                "prompt": prompt,
+                "system_prompt": system_prompt,
+                "temperature": temperature,
+                "top_p": 1,
+                "presence_penalty": 0,
+                "frequency_penalty": 0,
+                "max_completion_tokens": max_tokens,
+                "messages": [],
+                "image_input": [],
+            }
+        else:
+            # Generic format for other models
+            return {
+                "prompt": f"{system_prompt}\n\n{prompt}",
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
     
     async def chat(self, messages: List[Dict[str, Any]]) -> str:
         """Simple chat without documents.
@@ -73,17 +111,10 @@ class ReplicateClient:
             
         Raises:
             ReplicateClientError: If API call fails
-            
-        Example:
-            >>> client = ReplicateClient(api_token="...", model="openai/gpt-5")
-            >>> response = await client.chat([
-            ...     {"role": "system", "content": "You are helpful assistant"},
-            ...     {"role": "user", "content": "Hello!"}
-            ... ])
         """
         try:
             # Extract system prompt and user message
-            system_prompt = ""
+            system_prompt = "You are a helpful assistant."
             user_message = ""
             
             for msg in messages:
@@ -92,13 +123,16 @@ class ReplicateClient:
                 elif msg["role"] == "user":
                     user_message = msg["content"]
             
-            # Build prompt for Replicate
-            full_prompt = f"{system_prompt}\n\nUser: {user_message}\n\nAssistant:"
-            
             logger.info(f"Calling Replicate {self.model} for chat")
             
+            # Build input with proper format
+            input_data = self._get_model_input(
+                prompt=user_message,
+                system_prompt=system_prompt,
+                temperature=1.0,
+            )
+            
             # Stream from Replicate
-            input_data = {"prompt": full_prompt}
             result_parts: List[str] = []
             
             for output in self.client.stream(self.model, input=input_data):
@@ -125,27 +159,13 @@ class ReplicateClient:
     ) -> AsyncIterator[str]:
         """Analyze document with streaming response.
         
-        Streams tokens as they arrive from the model.
-        
         Args:
             document_text: Document content to analyze
             user_prompt: User's analysis request
-            system_prompt: Optional system prompt (uses default if None)
+            system_prompt: Optional system prompt
             
         Yields:
             str: Stream tokens
-            
-        Raises:
-            ValueError: If document text is empty
-            ReplicateClientError: If API call fails
-            
-        Example:
-            >>> client = ReplicateClient(api_token="...", model="openai/gpt-5")
-            >>> async for token in client.analyze_document_stream(
-            ...     "Document content...",
-            ...     "Summarize key points"
-            ... ):
-            ...     print(token, end="")
         """
         if not document_text or not document_text.strip():
             raise ValueError("Document text cannot be empty")
@@ -169,9 +189,15 @@ class ReplicateClient:
                 f"(doc: {len(document_text)} chars)"
             )
             
-            # Stream from Replicate
-            input_data = {"prompt": full_prompt}
+            # Build input with proper format
+            input_data = self._get_model_input(
+                prompt=full_prompt,
+                system_prompt="You are an expert document analyst.",
+                temperature=0.7,
+                max_tokens=4096,
+            )
             
+            # Stream from Replicate
             for output in self.client.stream(self.model, input=input_data):
                 if output:
                     yield str(output)
@@ -190,8 +216,6 @@ class ReplicateClient:
     ) -> str:
         """Analyze document and return complete response.
         
-        Collects all streamed tokens into single response.
-        
         Args:
             document_text: Document content
             user_prompt: Analysis request
@@ -199,10 +223,6 @@ class ReplicateClient:
             
         Returns:
             str: Complete analysis response
-            
-        Raises:
-            ValueError: If document is empty
-            ReplicateClientError: If API fails
         """
         result_parts: List[str] = []
         
@@ -232,7 +252,6 @@ class ReplicateClient:
             str: Complete prompt
         """
         return (
-            f"{system_prompt}\n\n"
             f"{user_prompt}\n\n"
             f"---DOCUMENT---\n"
             f"{document_text}\n\n"
@@ -261,18 +280,13 @@ class ReplicateClient:
     def get_available_models() -> List[str]:
         """Get list of available Replicate models.
         
-        Popular models for document analysis:
-        - openai/gpt-5 (most powerful)
-        - mistral-community/mistral-7b-instruct-v0.1 (fast, open)
-        - meta-llama/llama-2-70b-chat (powerful, open)
-        - nousresearch/nous-hermes-2-mixtral-8x7b-dpo (good balance)
-        
         Returns:
             List[str]: List of recommended models
         """
         return [
-            "openai/gpt-5",
+            "openai/gpt-4o-mini",  # Cheapest GPT-4 class model
+            "openai/gpt-4o",        # Fastest GPT-4 model
+            "openai/gpt-5",         # Most powerful (if available)
             "mistral-community/mistral-7b-instruct-v0.1",
             "meta-llama/llama-2-70b-chat",
-            "nousresearch/nous-hermes-2-mixtral-8x7b-dpo",
         ]
