@@ -7,7 +7,7 @@ Uses unified menu system with single message editing.
 import logging
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from app.localization import ru
@@ -89,37 +89,37 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == "mode_chat")
-async def cb_mode_chat(callback, state: FSMContext) -> None:
+async def cb_mode_chat(callback: CallbackQuery, state: FSMContext) -> None:
     """Switch to chat mode."""
     # Import chat handler
     from app.handlers.chat import start_chat_mode
     
-    # Navigate to chat mode
-    await start_chat_mode(callback, state)
+    # Navigate to chat mode with named parameters
+    await start_chat_mode(callback=callback, state=state)
 
 
 @router.callback_query(F.data == "mode_analyze")
-async def cb_mode_analyze(callback, state: FSMContext) -> None:
+async def cb_mode_analyze(callback: CallbackQuery, state: FSMContext) -> None:
     """Switch to analyze mode."""
     # Import analyze handler
     from app.handlers.conversation import start_analyze_mode
     
-    # Navigate to analyze mode
-    await start_analyze_mode(callback, state)
+    # Navigate to analyze mode with named parameters
+    await start_analyze_mode(callback=callback, state=state)
 
 
 @router.callback_query(F.data == "mode_prompts_menu")
-async def cb_mode_prompts(callback, state: FSMContext) -> None:
+async def cb_mode_prompts(callback: CallbackQuery, state: FSMContext) -> None:
     """Switch to prompts mode."""
     # Import prompts handler
     from app.handlers.prompts import start_prompts_mode
     
-    # Navigate to prompts mode
-    await start_prompts_mode(callback, state)
+    # Navigate to prompts mode with named parameters
+    await start_prompts_mode(callback=callback, state=state)
 
 
 @router.callback_query(F.data == "back_to_main_menu")
-async def cb_back_to_main(callback, state: FSMContext) -> None:
+async def cb_back_to_main(callback: CallbackQuery, state: FSMContext) -> None:
     """Return to main menu."""
     keyboard = create_keyboard(
         buttons=[
