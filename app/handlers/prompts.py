@@ -190,8 +190,11 @@ async def cb_prompt_select(query: CallbackQuery) -> None:
     
     is_custom = prompt_name in prompt_manager.get_user_prompts(user_id)
     
+    # Fix: Extract icons before f-string
+    icon = "✨" if is_custom else "📌"
+    
     text = (
-        f"{'\u2728' if is_custom else '\ud83d\udccc'} *{prompt.name.upper()}*\n\n"
+        f"{icon} *{prompt.name.upper()}*\n\n"
         f"_{prompt.description}_\n\n"
         f"*System Prompt:*\n`{prompt.system_prompt[:200]}...`\n\n"
         f"*User Prompt:*\n`{prompt.user_prompt_template[:200]}...`"
