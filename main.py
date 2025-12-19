@@ -67,11 +67,13 @@ async def main() -> None:
         logger.warning(f"Failed to setup bot commands: {e}")
     
     # Register handlers (order matters!)
-    dispatcher.include_router(common.router)
-    dispatcher.include_router(chat.router)
-    dispatcher.include_router(documents.router)
-    dispatcher.include_router(prompts.router)
-    dispatcher.include_router(conversation.router)
+    # IMPORTANT: Specific handlers MUST come BEFORE general ones
+    # Otherwise common.router might intercept all commands
+    dispatcher.include_router(prompts.router)       # 1st - /prompts command
+    dispatcher.include_router(conversation.router)  # 2nd - /analyze command
+    dispatcher.include_router(chat.router)          # 3rd - /chat command
+    dispatcher.include_router(documents.router)     # 4th - document handling
+    dispatcher.include_router(common.router)        # 5th - /start, /help (general)
     logger.info("Handlers registered")
     
     # Start polling
