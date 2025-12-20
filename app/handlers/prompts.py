@@ -1,11 +1,15 @@
 """Prompt management handlers.
 
+Fixes 2025-12-20 17:20:
+- Removed 'Create new prompt' button from main menu (no custom prompt creation)
+- Added 'Back' button to main menu (return to main chat/analysis)
+- Users can ONLY edit existing system prompts, not create new ones
+- Homework now has separate prompts per subject (math_homework, russian_homework, etc.)
+
 Fixes 2025-12-20 17:08:
-- Unified prompt menu showing all 3 categories: Document Analysis, Chat, Homework
-- Each category shows prompts with edit/default status
-- All prompts editable through same interface
-- Chat and homework prompts now manageable via /prompts
-- Organized by category in main menu
+- Unified menu showing all 3 categories: Document Analysis, Chat, Homework
+- Category-based organization
+- Same editing interface for all prompts
 
 Fixes 2025-12-20 16:59:
 - Fixed green checkmark on ALL prompts (is_custom was always True) - now only shows on user-created prompts
@@ -22,8 +26,8 @@ Fixes 2025-12-20 16:32:
 - Fixed save confirmation message - shows what was changed
 - Ensured update_prompt actually saves the changes
 
-Handles user interactions for managing custom prompts.
-Includes menu navigation, creation, editing, and deletion.
+Handles user interactions for managing system prompts.
+Includes menu navigation and editing of existing prompts.
 """
 
 import logging
@@ -61,12 +65,12 @@ def escape_markdown(text: str) -> str:
 
 # Inline keyboards
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
-    """Main prompt menu keyboard - organized by categories."""
+    """Main prompt menu keyboard - organized by categories with Back button."""
     builder = InlineKeyboardBuilder()
     builder.button(text="📄 Документы", callback_data="prompts_category_document_analysis")
     builder.button(text="💬 Диалог", callback_data="prompts_category_chat")
     builder.button(text="📖 Домашка", callback_data="prompts_category_homework")
-    builder.button(text="➕ Новый промпт", callback_data="prompt_create")
+    builder.button(text="« Назад", callback_data="back_to_main")
     builder.adjust(2)
     return builder.as_markup()
 
@@ -91,12 +95,10 @@ def get_category_keyboard(user_id: int, category: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_prompt_detail_keyboard(prompt_name: str, is_editable: bool) -> InlineKeyboardMarkup:
+def get_prompt_detail_keyboard(prompt_name: str) -> InlineKeyboardMarkup:
     """Keyboard for prompt details."""
     builder = InlineKeyboardBuilder()
     builder.button(text="✏️ Редактировать", callback_data=f"prompt_edit_{prompt_name}")
-    # Only allow custom prompts to be deleted
-    # System prompts can be reset to default by re-editing
     builder.button(text="« Назад", callback_data="prompts_menu")
     builder.adjust(2)
     return builder.as_markup()
@@ -112,17 +114,17 @@ async def start_prompts_mode(callback: CallbackQuery = None, message: Message = 
     
     text = (
         "🎯 *Управление промптами*\n\n"
-        "💡 *Новое:* Теперь вы можете редактировать \*все\* промпты:\n"
-        "• Документы для анализа\n"
-        "• Промпт для диалога\n"
-        "• Промпт для проверки домашки\n\n"
+        "💡 *Основные промпты системы:*\n"
+        "• 📄 Документы: 5 промптов для анализа\n"
+        "• 💬 Диалог: 1 основной промпт\n"
+        "• 📖 Домашка: 8 промптов по предметам\n\n"
         "📝 *Как работать:*\n"
-        "1️⃣ Выберите категорию (документы, диалог, домашка)\n"
-        "2️⃣ Выберите промпт из списка\n"
-        "3️⃣ Открыте редактор и измените текст\n"
-        "4️⃣ Сохранится автоматически!\n\n"
-        "🎯 *Базовые промпты* \- НЕ могут быть удалены, но могут быть \*отредактированы\*\n\n"
-        "👇 Выберите категорию:"
+        "1️⃣ Выберите категорию\n"
+        "2️⃣ Нажмите на промпт\n"
+        "3️⃣ Нажмите 'Определить' \u2013 откроен редактор\n"
+        "4️⃣ Отредактируйте текст\n"
+        "5️⃣ Нажмите 'Отправить' \u2013 сохранится!\n\n"
+        "👇 выберите категорию:"
     )
     
     if message:
@@ -153,6 +155,23 @@ async def cmd_prompts(message: Message, state: FSMContext) -> None:
     """Show prompts menu."""
     logger.info(f"User {message.from_user.id} activated /prompts")
     await start_prompts_mode(message=message, state=state)
+
+
+@router.callback_query(F.data == "back_to_main")
+async def cb_back_to_main(query: CallbackQuery, state: FSMContext) -> None:
+    """Back to main menu from prompts."""
+    await state.clear()
+    
+    text = "👋 Вернулся на главное меню."
+    
+    await query.message.edit_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="💬 Начать", callback_data="back_to_main")]]
+        ),
+    )
+    await query.answer()
 
 
 @router.callback_query(F.data == "prompts_menu")
@@ -217,7 +236,7 @@ async def cb_prompt_select(query: CallbackQuery) -> None:
         await query.answer("❌ Промпт не найден")
         return
     
-    # Check if this is user-created or system default
+    # Check if this is user-customized or system default
     user_prompts = prompt_manager.get_user_prompts(user_id)
     is_custom = prompt_name in user_prompts
     
@@ -240,126 +259,9 @@ async def cb_prompt_select(query: CallbackQuery) -> None:
     await query.message.edit_text(
         text,
         parse_mode="Markdown",
-        reply_markup=get_prompt_detail_keyboard(prompt_name, is_custom),
+        reply_markup=get_prompt_detail_keyboard(prompt_name),
     )
     await query.answer()
-
-
-@router.callback_query(F.data == "prompt_create")
-async def cb_prompt_create(query: CallbackQuery, state: FSMContext) -> None:
-    """Start creating new custom prompt."""
-    await state.set_state(PromptStates.entering_name)
-    
-    text = (
-        "➕ *Создать новый промпт*\n\n"
-        "Шаг 1️⃣ из 3\n\n"
-        "Введите имя промпта \(например: 'my_analyzer', 'contract_review'):"
-    )
-    
-    await query.message.edit_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="« Отмена", callback_data="prompts_menu")]]
-        ),
-    )
-    await query.answer()
-
-
-@router.message(PromptStates.entering_name)
-async def msg_prompt_name(message: Message, state: FSMContext) -> None:
-    """Save prompt name and ask for system prompt."""
-    name = message.text.strip().lower().replace(" ", "_")
-    
-    if not name or len(name) > 30:
-        await message.answer(
-            "❌ Неверное имя. Должно быть 1\-30 символов.\n"
-            "Попробуйте снова:"
-        )
-        return
-    
-    await state.update_data(prompt_name=name)
-    await state.set_state(PromptStates.entering_system_prompt)
-    
-    text = (
-        "➕ *Создать новый промпт*\n\n"
-        "Шаг 2️⃣ из 3\n\n"
-        "Введите *системный промпт* \(инструкции для ИИ):\n\n"
-        "_Пример:_ 'Ты юридический эксперт. Внимательно проверяй договора.'"
-    )
-    
-    await message.answer(
-        text,
-        parse_mode="Markdown",
-    )
-    logger.debug(f"User {message.from_user.id} creating prompt: {name}")
-
-
-@router.message(PromptStates.entering_system_prompt)
-async def msg_system_prompt(message: Message, state: FSMContext) -> None:
-    """Save system prompt and ask for user prompt."""
-    system_prompt = message.text
-    
-    if not system_prompt or len(system_prompt) < 10:
-        await message.answer(
-            "❌ Системный промпт слишком короткий \(минимум 10 символов).\n"
-            "Попробуйте снова:"
-        )
-        return
-    
-    await state.update_data(system_prompt=system_prompt)
-    await state.set_state(PromptStates.entering_user_prompt)
-    
-    text = (
-        "➕ *Создать новый промпт*\n\n"
-        "Шаг 3️⃣ из 3\n\n"
-        "Введите *темплейт для установки по умолчанию*:\n\n"
-        "_Пример:_ 'Проанализируй этот договор и выяви риски:'"
-    )
-    
-    await message.answer(
-        text,
-        parse_mode="Markdown",
-    )
-
-
-@router.message(PromptStates.entering_user_prompt)
-async def msg_user_prompt(message: Message, state: FSMContext) -> None:
-    """Save user prompt and finalize creation."""
-    user_prompt = message.text
-    
-    if not user_prompt or len(user_prompt) < 10:
-        await message.answer(
-            "❌ Темплейт слишком короткий \(минимум 10 символов).\n"
-            "Попробуйте снова:"
-        )
-        return
-    
-    data = await state.get_data()
-    prompt_name = data["prompt_name"]
-    system_prompt = data["system_prompt"]
-    
-    # Save prompt
-    prompt_manager.save_prompt(
-        user_id=message.from_user.id,
-        prompt_name=prompt_name,
-        system_prompt=system_prompt,
-        user_prompt_template=user_prompt,
-        description=f"👤 {prompt_name}",
-    )
-    
-    text = (
-        f"✅ *Промпт создан!*\n\n"
-        f"Имя: `{prompt_name}`\n"
-        f"Ваш промпт готов к использованию!"
-    )
-    
-    await message.answer(
-        text,
-        parse_mode="Markdown",
-    )
-    await state.clear()
-    logger.info(f"User {message.from_user.id} created prompt: {prompt_name}")
 
 
 @router.callback_query(F.data.startswith("prompt_edit_"))
