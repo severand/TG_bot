@@ -1,5 +1,11 @@
 """Main homework checking service.
 
+Fixes 2025-12-20 17:11:
+- check_homework now accepts system_prompt parameter
+- Allows users to use custom homework evaluation prompts
+- Falls back to default if not provided
+- Integrates with PromptManager for manageable prompts
+
 Integrates with LLM to evaluate homework assignments
 based on subject-specific criteria.
 """
@@ -43,7 +49,8 @@ class HomeworkChecker:
         self,
         content: str,
         subject: str,
-        file_type: str = "text"
+        file_type: str = "text",
+        system_prompt: Optional[str] = None
     ) -> HomeworkResult:
         """Check homework and return evaluation.
         
@@ -51,6 +58,7 @@ class HomeworkChecker:
             content: Homework content (text from file or image)
             subject: Subject code (math, russian, english, etc.)
             file_type: Type of file (text, image, pdf)
+            system_prompt: Custom system prompt for evaluation (optional)
             
         Returns:
             HomeworkResult with evaluation
@@ -65,7 +73,12 @@ class HomeworkChecker:
         rubric = SUBJECT_RUBRICS[subject]
         
         # Create evaluation prompt
-        prompt = self._create_evaluation_prompt(content, subject, rubric)
+        prompt = self._create_evaluation_prompt(
+            content, 
+            subject, 
+            rubric,
+            system_prompt=system_prompt
+        )
         
         # Get LLM response
         try:
@@ -82,13 +95,20 @@ class HomeworkChecker:
         
         return result
     
-    def _create_evaluation_prompt(self, content: str, subject: str, rubric: GradingRubric) -> str:
+    def _create_evaluation_prompt(
+        self, 
+        content: str, 
+        subject: str, 
+        rubric: GradingRubric,
+        system_prompt: Optional[str] = None
+    ) -> str:
         """Create evaluation prompt for LLM.
         
         Args:
             content: Homework content
             subject: Subject name
             rubric: Grading rubric
+            system_prompt: Custom system prompt (optional)
             
         Returns:
             Formatted prompt
@@ -98,8 +118,16 @@ class HomeworkChecker:
             for c in rubric.criteria
         )
         
-        prompt = f"""Проверьте следующее домашнее задание по предмету {rubric.subject}.
-Отвечайте ТОЛЬКО на русском языке!
+        # Use custom system prompt if provided, otherwise use default
+        if system_prompt:
+            base_instruction = system_prompt
+        else:
+            base_instruction = (
+                f"Повторяю: ты опытный оцениватель домашних заданий по {rubric.subject}. "
+                "Оценивай справедливо и конструктивно."
+            )
+        
+        prompt = f"""{base_instruction}
 
 Критерии оценки:
 {criteria_text}
@@ -113,8 +141,7 @@ class HomeworkChecker:
     "advice": "<конструктивный совет для улучшения на русском>"
 }}
 
-Оценивайте строго по критериям. Будьте справедливы, но объективны.
-ВСЕ ответы и комментарии должны быть на РУССКОМ языке!"""
+Оценивайте строго по критериям. Все комментарии должны быть на РУССКОМ языке!"""
         
         return prompt
     
