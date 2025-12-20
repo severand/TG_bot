@@ -1,5 +1,11 @@
 """Chat mode handlers for simple AI conversation.
 
+Fixes 2025-12-20 17:09:
+- Now uses manageable chat_system prompt from PromptManager
+- Users can edit chat prompt via /prompts > Dialog
+- Falls back to system default if user hasn't customized
+- Loads user prompts on each message
+
 Allows users to have a normal conversation with AI without
 needing to upload documents. This is the DEFAULT mode.
 """
@@ -14,6 +20,7 @@ from app.config import get_settings
 from app.localization import ru
 from app.states.chat import ChatStates
 from app.services.llm.llm_factory import LLMFactory
+from app.services.prompts.prompt_manager import PromptManager
 from app.utils.text_splitter import TextSplitter
 
 logger = logging.getLogger(__name__)
@@ -27,6 +34,7 @@ llm_factory = LLMFactory(
     replicate_api_token=config.REPLICATE_API_TOKEN or None,
     replicate_model=config.REPLICATE_MODEL,
 )
+prompt_manager = PromptManager()
 
 
 @router.message(Command("chat"))
@@ -84,9 +92,10 @@ async def start_chat_mode(callback: CallbackQuery = None, message: Message = Non
 async def handle_chat_message(message: Message, state: FSMContext) -> None:
     """Handle user message in chat mode.
     
-    Process the message and respond with AI.
+    Process the message and respond with AI using manageable prompt.
     """
     user_message = message.text.strip()
+    user_id = message.from_user.id
     
     if not user_message:
         await message.answer(ru.CHAT_EMPTY)
@@ -95,6 +104,21 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
     # Skip commands
     if user_message.startswith("/"):
         return
+    
+    # Load user prompts to get custom chat_system if exists
+    prompt_manager.load_user_prompts(user_id)
+    
+    # Get chat system prompt (from user custom or default)
+    chat_prompt = prompt_manager.get_prompt(user_id, "chat_system")
+    if not chat_prompt:
+        logger.warning(f"Chat prompt not found for user {user_id}, using default")
+        system_prompt = (
+            "Помощник для объяснения комплексных тем. "
+            "На весь русском. "
+            "Будь подробным, будь полным, будь полезным."
+        )
+    else:
+        system_prompt = chat_prompt.system_prompt
     
     # Show "typing..." indicator AND status message
     await message.bot.send_chat_action(message.chat.id, "typing")
@@ -109,11 +133,7 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
         # Generate response from LLM
         response = await llm_factory.chat(
             user_message=user_message,
-            system_prompt=(
-                "Помощник для объяснения комплексных тем. "
-                "На весь русском. "
-                "Будь подробным, будь полным, будь полезным."
-            ),
+            system_prompt=system_prompt,
             use_streaming=False,
         )
         
