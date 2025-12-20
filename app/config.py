@@ -1,5 +1,8 @@
 """Configuration module for Uh Bot.
 
+Fixes 2025-12-20:
+- Added TESSERACT_PATH for Windows OCR support
+
 Manages environment variables and validation using Pydantic.
 All secrets (API keys, tokens) are loaded from .env file.
 """
@@ -24,6 +27,7 @@ class Settings(BaseSettings):
         OPENAI_MODEL: OpenAI model to use
         REPLICATE_MODEL: Replicate model to use (text)
         REPLICATE_VISION_MODEL: Replicate vision model for image/OCR tasks
+        TESSERACT_PATH: Path to tesseract.exe (Windows)
         
     Example:
         >>> config = get_settings()
@@ -42,6 +46,7 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o"  # GPT-4o with vision support
     REPLICATE_MODEL: str = "meta/llama-2-70b-chat"  # Replicate model (text)
     REPLICATE_VISION_MODEL: str = "yorickvp/llava-13b"  # LLaVA vision model for OCR
+    TESSERACT_PATH: str = r"C:\Program Files\Tesseract-OCR\tesseract.exe"  # Windows default
     
     class Config:
         """Pydantic config."""
