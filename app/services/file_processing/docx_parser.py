@@ -1,5 +1,12 @@
 """DOCX file parser with robust error handling for old .doc files.
 
+Fixes 2025-12-21 00:45 - TEXT CLEANING:
+- Integrate TextCleaner for extracted binary content
+- Remove garbage characters from binary .doc extraction
+- Normalize whitespace and preserve paragraphs
+- Validate text quality before returning
+- Show preview of extracted text
+
 Fixes 2025-12-21 00:35 - CRITICAL FIX:
 - Improved binary .doc extraction with better text detection
 - Better word boundary detection in old Word binary format
@@ -26,6 +33,8 @@ from typing import Optional
 import re
 import struct
 
+from app.services.file_processing.text_cleaner import TextCleaner
+
 try:
     from docx import Document
 except ImportError:
@@ -50,13 +59,20 @@ class DOCXParser:
     Uses python-docx for valid files, ZIP extraction fallback for corrupted.
     Also handles pure binary old .doc files (not ZIP-based).
     Handles incomplete ZIP structures and corrupted XML gracefully.
+    
+    Cleans extracted text from binary sources to remove garbage.
     """
+    
+    def __init__(self) -> None:
+        """Initialize parser with text cleaner."""
+        self.text_cleaner = TextCleaner()
     
     def extract_text(self, file_path: Path) -> str:
         """Extract text from DOCX file.
         
         Extracts text from paragraphs and tables, preserving document structure.
         Tries python-docx first, falls back to ZIP extraction, then binary.
+        Cleans extracted text from binary sources.
         
         Args:
             file_path: Path to DOCX file
@@ -137,8 +153,22 @@ class DOCXParser:
             logger.info(f"Using binary fallback for {file_path.name}")
             result = self._extract_from_binary_doc(file_path)
             if result.strip():
-                logger.info(f"✓ Binary fallback extracted {len(result)} chars")
-                return result
+                # Clean the binary extraction result
+                logger.info(f"✓ Binary fallback extracted {len(result)} chars (before cleaning)")
+                
+                # Clean extracted text
+                logger.info(f"Cleaning extracted text from binary...")
+                cleaned_result = self.text_cleaner.clean_extracted_text(result, aggressive=False)
+                
+                if cleaned_result and self.text_cleaner.is_text_usable(cleaned_result):
+                    logger.info(f"✓ Cleaned text: {len(cleaned_result)} chars (quality OK)")
+                    # Show preview
+                    preview = self.text_cleaner.get_preview(cleaned_result, max_lines=3)
+                    logger.debug(f"Text preview:\n{preview}")
+                    return cleaned_result
+                else:
+                    logger.warning(f"Cleaned text quality is poor, returning raw text")
+                    return result
             else:
                 logger.warning(f"Binary fallback extracted 0 chars - file may be empty or corrupted")
                 # Return empty instead of raising to show file was processed
