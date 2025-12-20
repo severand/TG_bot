@@ -16,7 +16,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.states.homework import HomeworkStates
 from app.services.homework import HomeworkChecker, SubjectCheckers, ResultVisualizer
-from app.services.llm.replicate_service import ReplicateService
+from app.services.llm.replicate_client import ReplicateClient
 from app.services.file_processing.pdf_processor import process_pdf
 from app.config import get_settings
 
@@ -147,7 +147,10 @@ async def process_homework_file(
         
         # Initialize LLM service
         settings = get_settings()
-        llm = ReplicateService(api_key=settings.REPLICATE_API_TOKEN)
+        llm = ReplicateClient(
+            api_token=settings.REPLICATE_API_TOKEN,
+            model=settings.REPLICATE_MODEL
+        )
         checker = HomeworkChecker(llm)
         
         # Check homework
