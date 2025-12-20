@@ -17,7 +17,6 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from app.states.homework import HomeworkStates
 from app.services.homework import HomeworkChecker, SubjectCheckers, ResultVisualizer
 from app.services.llm.replicate_client import ReplicateClient
-from app.services.file_processing.pdf_processor import process_pdf
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -215,7 +214,17 @@ async def _extract_content(message: Message) -> str:
         
         # Process based on file type
         if message.document.mime_type == "application/pdf":
-            content = process_pdf(str(file_path))
+            try:
+                import pypdf
+                with open(file_path, 'rb') as pdf_file:
+                    pdf_reader = pypdf.PdfReader(pdf_file)
+                    text_parts = []
+                    for page in pdf_reader.pages:
+                        text_parts.append(page.extract_text())
+                    content = "\n".join(text_parts)
+            except Exception as e:
+                logger.error(f"Error processing PDF: {e}")
+                raise ValueError(f"Cannot read PDF: {e}")
         elif message.document.mime_type in [
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/msword"
