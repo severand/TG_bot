@@ -1,5 +1,11 @@
 """Homework checking handler.
 
+Fixes 2025-12-20 17:10:
+- Now uses manageable homework_system prompt from PromptManager
+- Users can edit homework prompt via /prompts > Homework
+- HomeworkChecker receives prompt from PromptManager
+- Falls back to system default if user hasn't customized
+
 Fixes 2025-12-20:
 - Changed parse_mode to None (plain text) to fix HTML parsing errors
 - Uses OCR.space cloud API (NO installation required!)
@@ -26,11 +32,13 @@ from app.states.homework import HomeworkStates
 from app.services.homework import HomeworkChecker, SubjectCheckers, ResultVisualizer
 from app.services.llm.replicate_client import ReplicateClient
 from app.services.file_processing import PDFParser, DOCXParser
+from app.services.prompts.prompt_manager import PromptManager
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 router = Router()
+prompt_manager = PromptManager()
 
 
 def get_subjects_keyboard() -> InlineKeyboardMarkup:
@@ -142,6 +150,7 @@ async def process_homework_file(
     """
     data = await state.get_data()
     subject_code = data.get("subject")
+    user_id = message.from_user.id
     
     # Show processing message
     processing_msg = await message.answer(
@@ -177,10 +186,29 @@ async def process_homework_file(
         )
         checker = HomeworkChecker(llm)
         
-        # Check homework
+        # Load user prompts to get custom homework_system if exists
+        prompt_manager.load_user_prompts(user_id)
+        
+        # Get homework system prompt (from user custom or default)
+        homework_prompt = prompt_manager.get_prompt(user_id, "homework_system")
+        if homework_prompt:
+            system_prompt = homework_prompt.system_prompt
+            logger.debug(f"Using custom homework prompt for user {user_id}")
+        else:
+            logger.warning(f"Homework prompt not found for user {user_id}, using default")
+            system_prompt = (
+                "Ты опытный учитель и эксперт по проверке домашних заданий. "
+                "Проверяй ответы студентов справедливо и конструктивно. "
+                "Выделяй правильные части, указывай ошибки и предлагай улучшения. "
+                "Объясняй, почему что-то неправильно, и как это исправить. "
+                "Будь мотивирующим и поддерживающим в своем тоне."
+            )
+        
+        # Check homework with manageable prompt
         result = await checker.check_homework(
             content=content,
-            subject=subject_code
+            subject=subject_code,
+            system_prompt=system_prompt  # Pass custom/default prompt
         )
         
         # Format result (plain text, no HTML)
