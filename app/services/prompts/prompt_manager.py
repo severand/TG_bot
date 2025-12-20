@@ -1,8 +1,14 @@
 """Prompt management system for custom AI prompts.
 
+Fixes 2025-12-20 17:19:
+- Created SEPARATE homework_system prompts for EACH subject
+- Each subject has own editable prompt (math_homework, russian_homework, etc.)
+- Removed ability to create new custom prompts (only edit existing system ones)
+- Users can only customize system prompts, not create new ones
+
 Fixes 2025-12-20 17:07:
 - Added CHAT and HOMEWORK system prompts that users can edit
-- All system prompts now managed through PromptManager
+- All system prompts managed through PromptManager
 - chat.py and homework.py can retrieve prompts from manager
 - Backward compatible with existing default prompts
 
@@ -99,7 +105,7 @@ class PromptManager:
     
     Provides:
     - Storage and retrieval of custom prompts
-    - System default prompts (DOCUMENT_ANALYSIS, CHAT, HOMEWORK)
+    - System default prompts (DOCUMENT_ANALYSIS, CHAT, HOMEWORK per subject)
     - User-specific prompt management
     - Prompt validation
     """
@@ -194,20 +200,35 @@ class PromptManager:
             user_prompt_template="{user_message}",
             description="💬 Основной диалог",
         ),
-        # ===== HOMEWORK CHECK PROMPTS =====
-        "homework_system": PromptTemplate(
-            name="homework_system",
+    }
+    
+    # Add homework prompts for each subject
+    _HOMEWORK_SUBJECTS = {
+        "math": "🔢 Математика",
+        "russian": "🔤 Русский язык",
+        "english": 🇬🇷 Английский язык",
+        "physics": "⚡ Физика",
+        "chemistry": "🧠 Химия",
+        "cs": 💻 Информатика",
+        "geography": 🌍 География",
+        "literature": 📖 Литература",
+    }
+    
+    # Initialize homework prompts
+    for _subject_code, _subject_emoji_name in _HOMEWORK_SUBJECTS.items():
+        DEFAULT_PROMPTS[f"{_subject_code}_homework"] = PromptTemplate(
+            name=f"{_subject_code}_homework",
             system_prompt=(
-                "Ты опытный учитель и эксперт по проверке домашних заданий. "
+                "Ты опытный учитель и эксперт по проверке домашних заданий "
+                f"по {_subject_emoji_name.split()[-1]}. "
                 "Проверяй ответы студентов справедливо и конструктивно. "
                 "Выделяй правильные части, указывай ошибки и предлагай улучшения. "
                 "Объясняй, почему что-то неправильно, и как это исправить. "
                 "Будь мотивирующим и поддерживающим в своем тоне."
             ),
-            user_prompt_template="Проверь это домашнее задание по {subject}:",
-            description="📖 Проверка домашнего задания",
-        ),
-    }
+            user_prompt_template=f"Проверь это домашнее задание по {_subject_emoji_name}:",
+            description=f"{_subject_emoji_name}",
+        )
     
     # Prompt categories for UI organization
     PROMPT_CATEGORIES = {
@@ -219,7 +240,16 @@ class PromptManager:
             "legal_review",
         ],
         "chat": ["chat_system"],
-        "homework": ["homework_system"],
+        "homework": [
+            "math_homework",
+            "russian_homework",
+            "english_homework",
+            "physics_homework",
+            "chemistry_homework",
+            "cs_homework",
+            "geography_homework",
+            "literature_homework",
+        ],
     }
     
     def __init__(self, storage_dir: Path = Path("./data/prompts")) -> None:
@@ -294,16 +324,29 @@ class PromptManager:
     ) -> PromptTemplate:
         """Save user prompt.
         
+        IMPORTANT: Only allows saving edits to EXISTING system prompts.
+        Cannot create new custom prompts.
+        
         Args:
             user_id: Telegram user ID
-            prompt_name: Prompt name
+            prompt_name: Prompt name (must be system prompt name)
             system_prompt: System instructions
             user_prompt_template: User prompt
             description: Prompt description
             
         Returns:
             PromptTemplate: Saved prompt
+            
+        Raises:
+            ValueError: If trying to create new custom prompt
         """
+        # Check if prompt exists in system defaults
+        if prompt_name not in self.DEFAULT_PROMPTS:
+            raise ValueError(
+                f"Cannot create new custom prompts. "
+                f"Prompt '{prompt_name}' is not a system prompt."
+            )
+        
         if user_id not in self.user_prompts:
             self.user_prompts[user_id] = {}
         
@@ -335,7 +378,7 @@ class PromptManager:
         
         Args:
             user_id: User ID
-            prompt_name: Prompt name
+            prompt_name: Prompt name (must be system prompt)
             system_prompt: New system prompt (optional)
             user_prompt_template: New user prompt (optional)
             
@@ -397,9 +440,9 @@ class PromptManager:
         user_id: int,
         prompt_name: str,
     ) -> bool:
-        """Delete user prompt.
+        """Delete user prompt customization.
         
-        Note: Cannot delete system prompts, only user-created ones.
+        Note: Cannot delete system prompts, only user customizations.
         
         Args:
             user_id: User ID
@@ -439,13 +482,13 @@ class PromptManager:
         return all_prompts
     
     def get_user_prompts(self, user_id: int) -> Dict[str, PromptTemplate]:
-        """Get only user-created prompts.
+        """Get only user-customized prompts.
         
         Args:
             user_id: User ID
             
         Returns:
-            Dict: User prompts
+            Dict: User-customized prompts
         """
         return self.user_prompts.get(user_id, {})
     
