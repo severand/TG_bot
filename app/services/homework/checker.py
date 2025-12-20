@@ -98,21 +98,23 @@ class HomeworkChecker:
             for c in rubric.criteria
         )
         
-        prompt = f"""Evaluate the following homework for {rubric.subject}.
+        prompt = f"""Проверьте следующее домашнее задание по предмету {rubric.subject}.
+Отвечайте ТОЛЬКО на русском языке!
 
-Evaluation Criteria:
+Критерии оценки:
 {criteria_text}
 
-Provide evaluation in JSON format:
+Предоставьте оценку в формате JSON:
 {{
-    "points": <total points earned>,
-    "correct_items": [<list of correct answers/parts>],
-    "incorrect_items": [<list of incorrect answers/parts>],
-    "feedback": "<detailed feedback>",
-    "advice": "<constructive advice for improvement>"
+    "points": <всего набранных баллов>,
+    "correct_items": [<список правильных ответов/частей>],
+    "incorrect_items": [<список неправильных ответов/частей>],
+    "feedback": "<подробный отзыв на русском>",
+    "advice": "<конструктивный совет для улучшения на русском>"
 }}
 
-Evaluate strictly according to criteria. Be fair but objective."""
+Оценивайте строго по критериям. Будьте справедливы, но объективны.
+ВСЕ ответы и комментарии должны быть на РУССКОМ языке!"""
         
         return prompt
     
