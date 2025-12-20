@@ -22,7 +22,8 @@ class Settings(BaseSettings):
         RESPONSE_THRESHOLD: Number of messages before generating docx (3 default)
         TEMP_DIR: Temporary directory for file storage
         OPENAI_MODEL: OpenAI model to use
-        REPLICATE_MODEL: Replicate model to use (supports image/vision)
+        REPLICATE_MODEL: Replicate model to use (text)
+        REPLICATE_VISION_MODEL: Replicate vision model for image/OCR tasks
         
     Example:
         >>> config = get_settings()
@@ -40,7 +41,7 @@ class Settings(BaseSettings):
     TEMP_DIR: str = "./temp"
     OPENAI_MODEL: str = "gpt-4o"  # GPT-4o with vision support
     REPLICATE_MODEL: str = "meta/llama-2-70b-chat"  # Replicate model (text)
-    REPLICATE_VISION_MODEL: str = "openai/gpt-4-vision"  # For image/OCR tasks
+    REPLICATE_VISION_MODEL: str = "yorickvp/llava-13b"  # LLaVA vision model for OCR
     
     class Config:
         """Pydantic config."""
