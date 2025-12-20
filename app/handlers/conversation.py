@@ -8,9 +8,11 @@ Fixes 2025-12-20:
 - OCR extraction: Added detailed step-by-step logging for silent failures
 - OCR timeout: Increased to 60s, added connection timeout
 - OCR validation: Check response structure before parsing
+- STATE TRANSITION FIXED: After analysis completes, return to chat mode (clear state)
+  Previously user was stuck in waiting_for_command, any text would re-trigger analysis
 
 Users now select prompt TYPE BEFORE uploading document.
-Workflow: /analyze -> Select prompt -> Upload document -> Analyze
+Workflow: /analyze -> Select prompt -> Upload document -> Analyze -> Back to chat
 Full prompt selection integration.
 """
 
@@ -280,9 +282,6 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             user_id=message.from_user.id,
         )
         
-        # Move to ready for analysis state
-        await state.set_state(ConversationStates.waiting_for_command)
-        
         # Get prompt info from state
         data = await state.get_data()
         selected_prompt_name = data.get("selected_prompt_name", "default")
@@ -360,9 +359,6 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
             user_id=message.from_user.id,
         )
         
-        # Move to ready for analysis state
-        await state.set_state(ConversationStates.waiting_for_command)
-        
         # Get prompt info from state
         data = await state.get_data()
         selected_prompt_name = data.get("selected_prompt_name", "default")
@@ -392,41 +388,17 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
             await CleanupManager.cleanup_directory_async(temp_user_dir)
 
 
-@router.message(ConversationStates.waiting_for_command, F.text)
-async def handle_analysis_command(message: Message, state: FSMContext) -> None:
-    """Handle optional additional instruction for analysis."""
-    command = message.text.strip()
-    
-    if not command:
-        await message.answer("Укажите инструкцию для анализа.")
-        return
-    
-    # Check for special commands
-    if command.startswith("/"):
-        return
-    
-    data = await state.get_data()
-    
-    # Use additional instruction if provided
-    await state.update_data(additional_instruction=command)
-    
-    # Create progress message
-    status_msg = await message.answer(
-        "⏳ Анализирую по вашей инструкции...\n"
-        "Это может занять некоторое время..."
-    )
-    
-    await _perform_analysis(message, state, data, status_msg, additional_instruction=command)
-
-
 async def _perform_analysis(
     message: Message, 
     state: FSMContext, 
     data: dict,
     status_msg: Message = None,
-    additional_instruction: str = None,
 ) -> None:
-    """Perform analysis with selected prompt. Auto-delete progress message after sending results."""
+    """Perform analysis with selected prompt. Auto-delete progress message after sending results.
+    
+    IMPORTANT: After analysis completes, returns user to chat mode (clears state).
+    This ensures they don't stay in analysis mode.
+    """
     document_text = data.get("document_text")
     document_name = data.get("document_name")
     selected_prompt_name = data.get("selected_prompt_name", "default")
@@ -435,6 +407,8 @@ async def _perform_analysis(
         await message.answer("⚠️ Документ не загружен.")
         if status_msg:
             await status_msg.delete()
+        # Return to chat mode
+        await state.clear()
         return
     
     logger.info(
@@ -456,11 +430,8 @@ async def _perform_analysis(
                 "❌ Промпт не найден. Используется стандартный..."
             )
         
-        # Build analysis command
-        if additional_instruction:
-            analysis_command = additional_instruction
-        else:
-            analysis_command = prompt.user_prompt_template if prompt else "Проанализируй этот документ и предоставь ключевые выводы."
+        # Build analysis command - NO additional instruction support
+        analysis_command = prompt.user_prompt_template if prompt else "Проанализируй этот документ и предоставь ключевые выводы."
         
         # Analyze
         analysis_result = await llm_factory.analyze_document(
@@ -474,6 +445,8 @@ async def _perform_analysis(
             await message.answer("❌ Анализ не удался. Попробуйте ещё раз.")
             if status_msg:
                 await status_msg.delete()
+            # Return to chat mode
+            await state.clear()
             return
         
         # Split and send
@@ -501,12 +474,18 @@ async def _perform_analysis(
             f"Analysis completed for user {message.from_user.id}: "
             f"{len(analysis_result)} chars in {len(chunks)} parts"
         )
+        
+        # CRITICAL: Return to chat mode after analysis completes
+        logger.info(f"User {message.from_user.id} returned to chat mode")
+        await state.clear()
     
     except Exception as e:
         logger.error(f"Analysis error: {e}")
         await message.answer(f"❌ Ошибка: {str(e)[:100]}")
         if status_msg:
             await status_msg.delete()
+        # Return to chat mode even on error
+        await state.clear()
 
 
 async def _extract_text_from_photo_for_analysis(
