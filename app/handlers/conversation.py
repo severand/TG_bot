@@ -1,13 +1,13 @@
 """Conversation mode handlers for interactive document analysis.
 
 Fixes 2025-12-20:
-- Users now select prompt TYPE BEFORE uploading document
-- Workflow: /analyze -> Select prompt -> Upload document -> Analyze
-- Full prompt selection integration
-- Fixed Unicode surrogate encoding errors
+- Prompt selection keyboard: 2 buttons per row for better layout
+- Photo upload: no 'photo ready' confirmation, only progress message
+- Progress message auto-deleted after analysis results sent
 
-Simplified: Just upload documents and send analysis instructions.
-No menus, no buttons - clean workflow via /analyze command.
+Users now select prompt TYPE BEFORE uploading document.
+Workflow: /analyze -> Select prompt -> Upload document -> Analyze
+Full prompt selection integration.
 """
 
 import logging
@@ -43,7 +43,7 @@ llm_factory = LLMFactory(
 
 
 def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Get keyboard with list of available prompts."""
+    """Get keyboard with list of available prompts - 2 buttons per row."""
     prompts = prompt_manager.list_prompts(user_id)
     
     builder = InlineKeyboardBuilder()
@@ -59,7 +59,7 @@ def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
     
     # Back button
     builder.button(text="« Отмена", callback_data="analyze_cancel")
-    builder.adjust(1)  # One button per row for readability
+    builder.adjust(2)  # 2 buttons per row
     
     return builder.as_markup()
 
@@ -279,29 +279,18 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         # Move to ready for analysis state
         await state.set_state(ConversationStates.waiting_for_command)
         
-        # Confirm
-        await status_msg.delete()
-        
         # Get prompt info from state
         data = await state.get_data()
         selected_prompt_name = data.get("selected_prompt_name", "default")
         
-        text = (
-            f"✅ *Документ готов!*\n\n"
-            f"*Файл:* `{document.file_name or 'document'}`\n"
-            f"*Размер:* {len(extracted_text):,} символов\n"
-            f"*Тип анализа:* `{selected_prompt_name}`\n\n"
-            f"🔄 Начинаю анализ...\n\n"
-            f"Или напишите дополнительную инструкцию для уточнения анализа."
-        )
-        
-        await message.answer(
-            text,
-            parse_mode="Markdown",
+        # Update status message with analysis start
+        await status_msg.edit_text(
+            f"⏳ Анализирую с промптом '{selected_prompt_name}'...\n"
+            "Это может занять некоторое время..."
         )
         
         # Immediately start analysis with selected prompt
-        await _perform_analysis(message, state, data)
+        await _perform_analysis(message, state, data, status_msg)
         
         logger.info(
             f"Document loaded for user {message.from_user.id}: "
@@ -320,16 +309,16 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
 
 @router.message(ConversationStates.ready, F.photo)
 async def handle_photo_upload(message: Message, state: FSMContext) -> None:
-    """Handle photo upload with OCR extraction (same as documents handler)."""
+    """Handle photo upload with OCR extraction - progress only, no confirmation."""
     if not message.photo:
         await message.answer("❌ Фото не найдено")
         return
     
     logger.info(f"User {message.from_user.id} uploading photo")
     
-    # Show processing
+    # Show processing ONLY - no confirmation message after
     status_msg = await message.answer(
-        "📸 Обрабатываю фото...\n"
+        "⏳ Обрабатываю фото...\n"
         "Распознавание текста (OCR)..."
     )
     
@@ -369,28 +358,18 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         # Move to ready for analysis state
         await state.set_state(ConversationStates.waiting_for_command)
         
-        # Confirm
-        await status_msg.delete()
-        
         # Get prompt info from state
         data = await state.get_data()
         selected_prompt_name = data.get("selected_prompt_name", "default")
         
-        text = (
-            f"✅ *Фото готово!*\n\n"
-            f"*Размер:* {len(extracted_text):,} символов\n"
-            f"*Тип анализа:* `{selected_prompt_name}`\n\n"
-            f"🔄 Начинаю анализ...\n\n"
-            f"Или напишите дополнительную инструкцию для уточнения."
-        )
-        
-        await message.answer(
-            text,
-            parse_mode="Markdown",
+        # Update status message with analysis start - NO "photo ready" message
+        await status_msg.edit_text(
+            f"⏳ Анализирую с промптом '{selected_prompt_name}'...\n"
+            "Это может занять некоторое время..."
         )
         
         # Immediately start analysis with selected prompt
-        await _perform_analysis(message, state, data)
+        await _perform_analysis(message, state, data, status_msg)
         
         logger.info(
             f"Photo loaded for user {message.from_user.id}: "
@@ -424,22 +403,32 @@ async def handle_analysis_command(message: Message, state: FSMContext) -> None:
     
     # Use additional instruction if provided
     await state.update_data(additional_instruction=command)
-    await _perform_analysis(message, state, data, additional_instruction=command)
+    
+    # Create progress message
+    status_msg = await message.answer(
+        "⏳ Анализирую по вашей инструкции...\n"
+        "Это может занять некоторое время..."
+    )
+    
+    await _perform_analysis(message, state, data, status_msg, additional_instruction=command)
 
 
 async def _perform_analysis(
     message: Message, 
     state: FSMContext, 
     data: dict,
+    status_msg: Message = None,
     additional_instruction: str = None,
 ) -> None:
-    """Perform analysis with selected prompt."""
+    """Perform analysis with selected prompt. Auto-delete progress message after sending results."""
     document_text = data.get("document_text")
     document_name = data.get("document_name")
     selected_prompt_name = data.get("selected_prompt_name", "default")
     
     if not document_text:
         await message.answer("⚠️ Документ не загружен.")
+        if status_msg:
+            await status_msg.delete()
         return
     
     logger.info(
@@ -477,6 +466,8 @@ async def _perform_analysis(
         
         if not analysis_result:
             await message.answer("❌ Анализ не удался. Попробуйте ещё раз.")
+            if status_msg:
+                await status_msg.delete()
             return
         
         # Split and send
@@ -496,6 +487,10 @@ async def _perform_analysis(
                     parse_mode="Markdown",
                 )
         
+        # Delete progress message after results sent
+        if status_msg:
+            await status_msg.delete()
+        
         logger.info(
             f"Analysis completed for user {message.from_user.id}: "
             f"{len(analysis_result)} chars in {len(chunks)} parts"
@@ -504,6 +499,8 @@ async def _perform_analysis(
     except Exception as e:
         logger.error(f"Analysis error: {e}")
         await message.answer(f"❌ Ошибка: {str(e)[:100]}")
+        if status_msg:
+            await status_msg.delete()
 
 
 async def _extract_text_from_photo_for_analysis(
@@ -597,7 +594,7 @@ async def cb_doc_info(query: CallbackQuery, state: FSMContext) -> None:
     document_size = data.get("document_size", 0)
     
     text = (
-        f"📊 *Информация о документе*\n\n"
+        f"📋 *Информация о документе*\n\n"
         f"*Имя:* `{document_name}`\n"
         f"*Размер:* {document_size:,} символов"
     )
