@@ -1,5 +1,11 @@
 """Conversation mode handlers for interactive document analysis.
 
+Fixes 2025-12-20 19:05:
+- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: В /analyze показываются ТОЛЬКО промпты для анализа документов
+- Использует get_prompt_by_category() вместо list_prompts() для фильтрации
+- Убрана ошибка отображения домашки и чата в списке промптов для анализа
+- Кнопки теперь правильно фильтруются по категории "document_analysis"
+
 Fixes 2025-12-20:
 - Prompt selection keyboard: 2 buttons per row for better layout
 - Photo upload: no 'photo ready' confirmation, only progress message
@@ -49,12 +55,22 @@ llm_factory = LLMFactory(
 
 
 def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Get keyboard with list of available prompts - 2 buttons per row."""
-    prompts = prompt_manager.list_prompts(user_id)
+    """Get keyboard with ONLY document analysis prompts - 2 buttons per row.
+    
+    КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем get_prompt_by_category() для получения
+    ТОЛЬКО промптов категории "document_analysis", а НЕ всех промптов.
+    """
+    # Загружаем промпты пользователя
+    prompt_manager.load_user_prompts(user_id)
+    
+    # ИСПРАВЛЕНО: Получаем ТОЛЬКО промпты для анализа документов
+    prompts = prompt_manager.get_prompt_by_category(user_id, "document_analysis")
+    
+    logger.debug(f"User {user_id}: Loading {len(prompts)} DOCUMENT ANALYSIS prompts")
     
     builder = InlineKeyboardBuilder()
     
-    # Add all prompts
+    # Добавляем кнопки только для документных промптов
     for name in sorted(prompts.keys()):
         prompt = prompts[name]
         button_text = f"{prompt.description[:40]}"
@@ -63,9 +79,9 @@ def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
             callback_data=f"analyze_select_prompt_{name}"
         )
     
-    # Back button
+    # Кнопка отмены
     builder.button(text="« Отмена", callback_data="analyze_cancel")
-    builder.adjust(2)  # 2 buttons per row
+    builder.adjust(2)  # 2 кнопки в ряду
     
     return builder.as_markup()
 
@@ -81,6 +97,7 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
     """Start interactive document analysis mode.
     
     NEW: Show prompt selection FIRST, then ask for document.
+    ТОЛЬКО промпты для анализа документов!
     """
     if state is None:
         logger.error("state is None in start_analyze_mode")
@@ -94,14 +111,16 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
     
     # Load user prompts
     prompt_manager.load_user_prompts(user_id)
-    prompts = prompt_manager.list_prompts(user_id)
+    
+    # ИСПРАВЛЕНО: Получаем ТОЛЬКО документные промпты
+    prompts = prompt_manager.get_prompt_by_category(user_id, "document_analysis")
     
     await state.set_state(ConversationStates.selecting_prompt)
     
     text = (
         "📋 *Анализ документов*\n\n"
         "Шаг 1️⃣ из 2: *Выберите тип анализа*\n\n"
-        f"📄 *Доступно: {len(prompts)} промптов*\n\n"
+        f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
         "🔙 *Как это работает:*\n"
         "1️⃣ Выберите промпт (тип анализа)\n"
         "2️⃣ Загрузите документ\n"
@@ -115,7 +134,7 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
             parse_mode="Markdown",
             reply_markup=_get_prompts_keyboard(user_id),
         )
-        logger.info(f"Analysis mode started for user {user_id}")
+        logger.info(f"Analysis mode started for user {user_id} with {len(prompts)} document prompts")
     elif callback:
         await callback.message.answer(
             text,
@@ -123,7 +142,7 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
             reply_markup=_get_prompts_keyboard(user_id),
         )
         await callback.answer()
-        logger.info(f"Analysis mode started for user {user_id}")
+        logger.info(f"Analysis mode started for user {user_id} with {len(prompts)} document prompts")
 
 
 @router.callback_query(F.data.startswith("analyze_select_prompt_"))
@@ -170,12 +189,14 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
 async def cb_back_to_prompts(query: CallbackQuery, state: FSMContext) -> None:
     """Go back to prompt selection."""
     user_id = query.from_user.id
-    prompts = prompt_manager.list_prompts(user_id)
+    
+    # ИСПРАВЛЕНО: Получаем ТОЛЬКО документные промпты
+    prompts = prompt_manager.get_prompt_by_category(user_id, "document_analysis")
     
     text = (
         "📋 *Анализ документов*\n\n"
         "Шаг 1️⃣ из 2: *Выберите тип анализа*\n\n"
-        f"📄 *Доступно: {len(prompts)} промптов*\n\n"
+        f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
         "👇 Ниже выберите тип анализа:"
     )
     
