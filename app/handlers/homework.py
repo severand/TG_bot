@@ -1,6 +1,7 @@
 """Homework checking handler.
 
 Fixes 2025-12-20:
+- Changed parse_mode to None (plain text) to fix HTML parsing errors
 - Uses OCR.space cloud API (NO installation required!)
 - Free 25,000 requests/month
 - Automatic photo text extraction
@@ -145,7 +146,7 @@ async def process_homework_file(
     # Show processing message
     processing_msg = await message.answer(
         text=(
-            "🕋 Обрабатываю...\n"
+            "🔄 Обрабатываю...\n"
             "📏 снимаю текст...\n"
             "🧠 анализирую ответы..."
         )
@@ -159,12 +160,11 @@ async def process_homework_file(
             await processing_msg.edit_text(
                 text=(
                     f"❌ Не удалось получить текст\n\n"
-                    f"<b>Проверьте:</b>\n"
+                    f"Проверьте:\n"
                     f"• Фото должно быть четким\n"
                     f"• Текст должен быть читаемым\n"
                     f"• Или отправьте текст сообщением"
-                ),
-                parse_mode="HTML"
+                )
             )
             await state.clear()
             return
@@ -183,20 +183,19 @@ async def process_homework_file(
             subject=subject_code
         )
         
-        # Format result
+        # Format result (plain text, no HTML)
         result_text = ResultVisualizer.format_result(result)
         
-        # Update message with result
-        await processing_msg.edit_text(text=result_text, parse_mode="HTML")
+        # Update message with result (NO parse_mode - plain text)
+        await processing_msg.edit_text(text=result_text)
         
     except Exception as e:
         logger.error(f"Error processing homework: {e}")
         await processing_msg.edit_text(
             text=(
                 f"❌ Ошибка при анализе:\n"
-                f"<code>{str(e)}</code>"
-            ),
-            parse_mode="HTML"
+                f"{str(e)}"
+            )
         )
     
     # Reset state
