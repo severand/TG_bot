@@ -222,7 +222,7 @@ async def _extract_content(message: Message) -> str:
 
 
 async def _extract_text_from_photo(message: Message) -> str:
-    """Extract text from photo using LLM vision.
+    """Extract text from photo using LLM vision (OCR).
     
     Args:
         message: Message with photo
@@ -244,27 +244,32 @@ async def _extract_text_from_photo(message: Message) -> str:
         await message.bot.download_file(file_info.file_path, temp_file)
         
         try:
-            # Read image and convert to base64
+            # Read image and convert to base64 for vision API
             with open(temp_file, "rb") as f:
                 image_data = base64.b64encode(f.read()).decode()
             
-            # Use LLM to extract text from image
+            # Use LLM vision to extract text from image
             settings = get_settings()
             llm = ReplicateClient(
                 api_token=settings.REPLICATE_API_TOKEN,
                 model=settings.REPLICATE_MODEL
             )
             
+            # Create OCR prompt
             ocr_prompt = (
-                "Опиши все текстовое содержимое в этом изображении. "
-                "Отвечай ТОЛЬКО на русском языке!"
+                "Опиши все текстовое содержимое в этом изображении.\n"
+                "Выдели все цифры, выражения, формулы.\n"
+                "Отвечай ТОЛЬКО на РУССКОМ языке!"
             )
             
-            # Since Replicate client may not support image input directly,
-            # we'll use a simple fallback message
-            text = ocr_prompt
-            logger.info(f"Extracted text from photo using LLM vision")
-            return text
+            # Call LLM for OCR
+            extracted_text = await llm.analyze_document(
+                document_text="[ФОТО]",
+                user_prompt=ocr_prompt
+            )
+            
+            logger.info(f"Extracted {len(extracted_text)} chars from photo using LLM vision")
+            return extracted_text
         
         finally:
             # Clean up
