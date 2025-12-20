@@ -11,7 +11,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, File
 from aiogram.fsm.context import FSMContext
 from aiogram.filters.command import Command
-from aiogram.filters.content_types import ContentType
+from aiogram.enums import ContentType
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.client.session import aiohttp_session
 
