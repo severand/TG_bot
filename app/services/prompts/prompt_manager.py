@@ -1,5 +1,10 @@
 """Prompt management system for custom AI prompts.
 
+Fixes 2025-12-20 16:35:
+- update_prompt now creates user copy if editing system prompt
+- Ensures changes are actually saved to user_prompts dict
+- Added proper logging for debugging save issues
+
 Allows users to create, edit, and manage custom prompts for document analysis.
 Includes storage and retrieval of user prompts.
 """
@@ -253,6 +258,8 @@ class PromptManager:
     ) -> bool:
         """Update existing prompt.
         
+        IMPORTANT: If editing a system default prompt, creates a user copy first.
+        
         Args:
             user_id: User ID
             prompt_name: Prompt name
@@ -262,23 +269,51 @@ class PromptManager:
         Returns:
             bool: True if updated, False if not found
         """
-        prompt = self.get_prompt(user_id, prompt_name)
-        if not prompt:
+        # Get existing prompt
+        existing = self.get_prompt(user_id, prompt_name)
+        if not existing:
+            logger.warning(f"Prompt '{prompt_name}' not found for user {user_id}")
             return False
+        
+        # Check if this is a system default that user wants to edit
+        is_system_default = (
+            prompt_name in self.DEFAULT_PROMPTS and 
+            (user_id not in self.user_prompts or prompt_name not in self.user_prompts[user_id])
+        )
+        
+        if is_system_default:
+            # Create user copy of system default before editing
+            logger.info(f"Creating user copy of system prompt '{prompt_name}' for user {user_id}")
+            if user_id not in self.user_prompts:
+                self.user_prompts[user_id] = {}
+            
+            # Clone the system prompt
+            user_copy = PromptTemplate(
+                name=existing.name,
+                system_prompt=existing.system_prompt,
+                user_prompt_template=existing.user_prompt_template,
+                description=existing.description,
+            )
+            self.user_prompts[user_id][prompt_name] = user_copy
+            existing = user_copy
         
         # Update fields
         if system_prompt:
-            prompt.system_prompt = system_prompt
+            logger.debug(f"Updating system_prompt for '{prompt_name}'")
+            existing.system_prompt = system_prompt
+        
         if user_prompt_template:
-            prompt.user_prompt_template = user_prompt_template
+            logger.debug(f"Updating user_prompt_template for '{prompt_name}'")
+            existing.user_prompt_template = user_prompt_template
         
-        prompt.updated_at = datetime.now().isoformat()
+        existing.updated_at = datetime.now().isoformat()
         
-        # Save updated prompt
+        # Ensure prompt is in user_prompts dict
         if user_id not in self.user_prompts:
             self.user_prompts[user_id] = {}
+        self.user_prompts[user_id][prompt_name] = existing
         
-        self.user_prompts[user_id][prompt_name] = prompt
+        # Save to disk
         self._save_user_prompts(user_id)
         
         logger.info(f"Updated prompt '{prompt_name}' for user {user_id}")
@@ -365,6 +400,7 @@ class PromptManager:
             user_id: User ID
         """
         if user_id not in self.user_prompts:
+            logger.debug(f"No user prompts to save for {user_id}")
             return
         
         user_file = self.storage_dir / f"user_{user_id}.json"
@@ -378,7 +414,7 @@ class PromptManager:
             with open(user_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             
-            logger.debug(f"Persisted {len(data)} prompts for user {user_id}")
+            logger.debug(f"Persisted {len(data)} prompts for user {user_id} to {user_file}")
         
         except Exception as e:
             logger.error(f"Failed to save prompts for user {user_id}: {e}")
