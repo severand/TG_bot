@@ -1,8 +1,14 @@
 """Conversation mode handlers for interactive document analysis.
 
+Fixes 2025-12-20 23:32:
+- КРИТИЧЕСКОЕ: Каждый файл использует свой уникальный temp-директорий (UUID-based)
+- Устранена race condition когда параллельные загрузки удаляли директории друг друга
+- Теперь temp\7884972750_{file_uuid} вместо общего temp\7884972750
+- Каждый файл удаляет только свой директорий, не затрагивая другие
+
 Fixes 2025-12-20 22:15:
 - Поддерживает название документа в заголовке результата
-- Оригинальное имя файла мострится в каждом сообщении
+- Оригинальное имя файла показывается в каждом сообщении
 - При получении голоса называется 'photo_document'
 
 Fixes 2025-12-20 21:05:
@@ -248,7 +254,12 @@ async def cb_analyze_cancel(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(ConversationStates.ready, F.document)
 async def handle_document_upload(message: Message, state: FSMContext) -> None:
-    """Handle document upload - extract and save."""
+    """Handle document upload - extract and save.
+    
+    КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2025-12-20 23:32:
+    Каждый файл использует УНИКАЛЬНЫЙ temp-каталог с UUID,
+    чтобы параллельные загрузки не конфликтовали.
+    """
     if not message.document:
         await message.answer("❌ Документ не найден")
         return
@@ -273,15 +284,20 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         "Скачивание и извлечение текста..."
     )
     
+    # КРИТИЧЕСКОЕ: Каждый файл получает свой уникальный temp-каталог
+    file_uuid = str(uuid.uuid4())
     temp_user_dir = None
     
     try:
-        # Create temp directory
+        # Create UNIQUE temp directory для этого файла
         temp_base = Path(config.TEMP_DIR)
         temp_base.mkdir(exist_ok=True)
+        
+        # Уникальный каталог: temp\{user_id}_{file_uuid}
+        unique_temp_name = f"{message.from_user.id}_{file_uuid}"
         temp_user_dir = CleanupManager.create_temp_directory(
             temp_base,
-            message.from_user.id,
+            unique_temp_name,
         )
         
         # Download file
@@ -295,7 +311,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         
         # Generate unique filename
         file_ext = Path(document.file_name or "document").suffix or ".bin"
-        temp_file_path = temp_user_dir / f"{uuid.uuid4()}{file_ext}"
+        temp_file_path = temp_user_dir / f"{file_uuid}{file_ext}"
         
         await bot.download_file(file.file_path, temp_file_path)
         logger.info(f"Downloaded: {temp_file_path} ({file_size} bytes)")
@@ -344,19 +360,38 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         # Immediately start analysis with selected prompt
         await _perform_analysis(message, state, data, status_msg)
     
+    except ValueError as e:
+        # Unsupported format
+        logger.error(f"Error processing document: {e}")
+        await message.answer(
+            f"⚠️ {str(e)}\n\n"
+            f"📄 *Поддерживаемые форматы:*\n"
+            f"• PDF, DOCX, TXT\n"
+            f"• Excel (.xlsx, .xls - требуется xlrd для .xls)\n"
+            f"• ZIP\n\n"
+            f"❌ *НЕ поддерживается:* .doc (старый Word)\n"
+            f"Конвертируйте в .docx или PDF.",
+            parse_mode="Markdown",
+        )
+        await status_msg.delete()
     except Exception as e:
         logger.error(f"Error processing document: {e}")
-        await message.answer(f"❌ Ошибка: {str(e)}")
+        await message.answer(f"❌ Ошибка: {str(e)[:80]}")
         await status_msg.delete()
     
     finally:
+        # Cleanup ONLY this file's directory
         if temp_user_dir and temp_user_dir.exists():
             await CleanupManager.cleanup_directory_async(temp_user_dir)
 
 
 @router.message(ConversationStates.ready, F.photo)
 async def handle_photo_upload(message: Message, state: FSMContext) -> None:
-    """Handle photo upload with OCR extraction - progress only, no confirmation."""
+    """Handle photo upload with OCR extraction - progress only, no confirmation.
+    
+    КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2025-12-20 23:32:
+    Каждое фото использует УНИКАЛЬНЫЙ temp-каталог с UUID.
+    """
     if not message.photo:
         await message.answer("❌ Фото не найдено")
         return
@@ -369,15 +404,19 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         "Распознавание текста (OCR)..."
     )
     
+    # КРИТИЧЕСКОЕ: Уникальный temp-каталог для фото
+    file_uuid = str(uuid.uuid4())
     temp_user_dir = None
     
     try:
-        # Create temp directory
+        # Create UNIQUE temp directory
         temp_base = Path(config.TEMP_DIR)
         temp_base.mkdir(exist_ok=True)
+        
+        unique_temp_name = f"{message.from_user.id}_{file_uuid}"
         temp_user_dir = CleanupManager.create_temp_directory(
             temp_base,
-            message.from_user.id,
+            unique_temp_name,
         )
         
         # Extract text from photo using OCR
@@ -427,6 +466,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         await status_msg.delete()
     
     finally:
+        # Cleanup ONLY this photo's directory
         if temp_user_dir and temp_user_dir.exists():
             await CleanupManager.cleanup_directory_async(temp_user_dir)
 
@@ -510,7 +550,7 @@ async def _perform_analysis(
             # Несколько сообщений - заголовок только в первом
             for i, chunk in enumerate(chunks, 1):
                 if i == 1:
-                    # Первое сообщение с жданием и номером
+                    # Первое сообщение с заголовком и номером
                     prefix = f"📄 *Документ:* `{document_name}`\n\n*[Часть {i}/{len(chunks)}]*\n\n"
                 else:
                     # Остальные сообщения
@@ -559,6 +599,7 @@ async def _extract_text_from_photo_for_analysis(
     try:
         import httpx
         import base64
+        import asyncio
         
         logger.info(f"OCR: Starting extraction for user {message.from_user.id}")
         
