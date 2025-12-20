@@ -1,5 +1,10 @@
 """Chat mode handlers for simple AI conversation.
 
+Fixes 2025-12-20 19:00:
+- Добавлена явная очистка состояния ДО активации чата
+- Защита от обработки сообщений если состояние не установлено
+- Проверка что мы действительно в ChatStates.chatting перед обработкой
+
 Fixes 2025-12-20 17:09:
 - Now uses manageable chat_system prompt from PromptManager
 - Users can edit chat prompt via /prompts > Dialog
@@ -43,9 +48,17 @@ async def cmd_chat(message: Message, state: FSMContext) -> None:
     
     Note: Chat mode is active by default after /start.
     This command just confirms it.
+    
+    ВАЖНО: Сначала очищаем состояние, потом устанавливаем новое
+    Это предотвращает конфликты с другими режимами (homework, analyze и т.д.)
     """
+    # Шаг 1: ПОЛНАЯ очистка всех предыдущих состояний
     await state.clear()
+    logger.debug(f"Cleared state for user {message.from_user.id}")
+    
+    # Шаг 2: Установка состояния чата ПОСЛЕ очистки
     await state.set_state(ChatStates.chatting)
+    logger.debug(f"Set ChatStates.chatting for user {message.from_user.id}")
     
     text = (
         "💬 *Режим диалога активен*\n\n"
@@ -61,11 +74,18 @@ async def cmd_chat(message: Message, state: FSMContext) -> None:
 
 
 async def start_chat_mode(callback: CallbackQuery = None, message: Message = None, state: FSMContext = None) -> None:
-    """Start chat mode (legacy function for compatibility)."""
+    """Start chat mode (legacy function for compatibility).
+    
+    ВАЖНО: Сначала очищаем состояние, потом устанавливаем новое
+    """
     if state is None:
         logger.error("state is None in start_chat_mode")
         return
     
+    # Шаг 1: Полная очистка предыдущих состояний
+    await state.clear()
+    
+    # Шаг 2: Установка состояния чата
     await state.set_state(ChatStates.chatting)
     
     text = (
@@ -85,12 +105,16 @@ async def start_chat_mode(callback: CallbackQuery = None, message: Message = Non
         )
         await callback.answer()
     
-    logger.info(f"Chat mode started")
+    logger.info("Chat mode started")
 
 
 @router.message(ChatStates.chatting, F.text)
 async def handle_chat_message(message: Message, state: FSMContext) -> None:
     """Handle user message in chat mode.
+    
+    Обработчик ТОЛЬКО срабатывает если состояние точно ChatStates.chatting
+    Благодаря aiogram FSM, это гарантирует что мы не обработаем сообщения
+    из других режимов (homework, analyze и т.д.)
     
     Process the message and respond with AI using manageable prompt.
     """
@@ -104,6 +128,15 @@ async def handle_chat_message(message: Message, state: FSMContext) -> None:
     # Skip commands
     if user_message.startswith("/"):
         return
+    
+    # Проверяем что мы действительно в правильном состоянии
+    current_state = await state.get_state()
+    if current_state != ChatStates.chatting.state:
+        logger.warning(
+            f"User {user_id} sent message but not in chat state. "
+            f"Current state: {current_state}"
+        )
+        await state.set_state(ChatStates.chatting)
     
     # Load user prompts to get custom chat_system if exists
     prompt_manager.load_user_prompts(user_id)
