@@ -1,5 +1,10 @@
 """Homework checking handler.
 
+Fixes 2025-12-20 17:21:
+- Now uses SUBJECT-SPECIFIC homework prompts: math_homework, russian_homework, english_homework, etc.
+- Each subject has its own editable prompt (users can customize per subject via /prompts)
+- No longer uses single homework_system prompt for all subjects
+
 Fixes 2025-12-20 17:10:
 - Now uses manageable homework_system prompt from PromptManager
 - Users can edit homework prompt via /prompts > Homework
@@ -186,16 +191,17 @@ async def process_homework_file(
         )
         checker = HomeworkChecker(llm)
         
-        # Load user prompts to get custom homework_system if exists
+        # Load user prompts to get custom subject-specific homework prompt if exists
         prompt_manager.load_user_prompts(user_id)
         
-        # Get homework system prompt (from user custom or default)
-        homework_prompt = prompt_manager.get_prompt(user_id, "homework_system")
+        # Get SUBJECT-SPECIFIC homework prompt (e.g., math_homework, russian_homework)
+        subject_prompt_name = f"{subject_code}_homework"
+        homework_prompt = prompt_manager.get_prompt(user_id, subject_prompt_name)
         if homework_prompt:
             system_prompt = homework_prompt.system_prompt
-            logger.debug(f"Using custom homework prompt for user {user_id}")
+            logger.debug(f"Using subject-specific homework prompt for user {user_id}: {subject_prompt_name}")
         else:
-            logger.warning(f"Homework prompt not found for user {user_id}, using default")
+            logger.warning(f"Homework prompt not found for subject {subject_code}, using default")
             system_prompt = (
                 "Ты опытный учитель и эксперт по проверке домашних заданий. "
                 "Проверяй ответы студентов справедливо и конструктивно. "
@@ -204,11 +210,11 @@ async def process_homework_file(
                 "Будь мотивирующим и поддерживающим в своем тоне."
             )
         
-        # Check homework with manageable prompt
+        # Check homework with subject-specific prompt
         result = await checker.check_homework(
             content=content,
             subject=subject_code,
-            system_prompt=system_prompt  # Pass custom/default prompt
+            system_prompt=system_prompt  # Pass custom/default subject-specific prompt
         )
         
         # Format result (plain text, no HTML)
