@@ -1,7 +1,12 @@
 """File processing converter orchestrator.
 
-Coordinates extraction of text from various file formats (PDF, DOCX, ZIP).
+Coordinates extraction of text from various file formats (PDF, DOCX, ZIP, Excel).
 Handles file routing to appropriate parser.
+
+Fixes 2025-12-20 22:10:
+- Добавлена поддержка Excel файлов (.xlsx, .xls)
+- Используется openpyxl для парсинга таблиц
+- Логирование ошибок формата улучшено
 """
 
 import logging
@@ -10,17 +15,18 @@ from typing import Optional
 
 from app.services.file_processing.pdf_parser import PDFParser
 from app.services.file_processing.docx_parser import DOCXParser
+from app.services.file_processing.excel_parser import ExcelParser
 from app.services.file_processing.zip_handler import ZIPHandler
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_FORMATS = {".pdf", ".docx", ".txt", ".zip", ".doc"}
+SUPPORTED_FORMATS = {".pdf", ".docx", ".txt", ".zip", ".doc", ".xlsx", ".xls"}
 
 
 class FileConverter:
     """Converter for extracting text from various file formats.
     
-    Supports: PDF, DOCX, TXT, ZIP archives
+    Supports: PDF, DOCX, TXT, ZIP archives, Excel (.xlsx, .xls)
     Delegates to specialized parsers for each format.
     """
     
@@ -28,6 +34,7 @@ class FileConverter:
         """Initialize converter with parsers."""
         self.pdf_parser = PDFParser()
         self.docx_parser = DOCXParser()
+        self.excel_parser = ExcelParser()
         self.zip_handler = ZIPHandler()
     
     def is_supported(self, file_path: Path) -> bool:
@@ -71,9 +78,10 @@ class FileConverter:
             raise FileNotFoundError(f"File not found: {file_path}")
         
         if not self.is_supported(file_path):
+            supported_str = ", ".join(sorted(SUPPORTED_FORMATS))
             raise ValueError(
                 f"Unsupported format: {file_path.suffix}. "
-                f"Supported: {', '.join(SUPPORTED_FORMATS)}"
+                f"Supported: {supported_str}"
             )
         
         file_suffix = file_path.suffix.lower()
@@ -86,6 +94,10 @@ class FileConverter:
             elif file_suffix == ".docx":
                 logger.info(f"Processing DOCX: {file_path.name}")
                 return self.docx_parser.extract_text(file_path)
+            
+            elif file_suffix in {".xlsx", ".xls"}:
+                logger.info(f"Processing Excel: {file_path.name}")
+                return self.excel_parser.extract_text(file_path)
             
             elif file_suffix == ".txt":
                 logger.info(f"Processing TXT: {file_path.name}")
