@@ -4,6 +4,7 @@ Fixes 2025-12-20:
 - Users now select prompt TYPE BEFORE uploading document
 - Workflow: /analyze -> Select prompt -> Upload document -> Analyze
 - Full prompt selection integration
+- Fixed Unicode surrogate encoding errors
 
 Simplified: Just upload documents and send analysis instructions.
 No menus, no buttons - clean workflow via /analyze command.
@@ -57,7 +58,7 @@ def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
         )
     
     # Back button
-    builder.button(text="\u00ab \u041e\u0442\u043c\u0435\u043d\u0430", callback_data="analyze_cancel")
+    builder.button(text="« Отмена", callback_data="analyze_cancel")
     builder.adjust(1)  # One button per row for readability
     
     return builder.as_markup()
@@ -92,14 +93,14 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
     await state.set_state(ConversationStates.selecting_prompt)
     
     text = (
-        "\ud83d\udcca *\u0410\u043d\u0430\u043b\u0438\u0437 \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u043e\u0432*\n\n"
-        "\u0428\u0430\u0433 1\ufe0f\u20e3 \u0438\u0437 2: *\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0438\u043f \u0430\u043d\u0430\u043b\u0438\u0437\u0430*\n\n"
-        f"\ud83d\udcc4 *\u0414\u043e\u0441\u0442\u0443\u043f\u043d\u043e: {len(prompts)} \u043f\u0440\u043e\u043c\u043f\u0442\u043e\u0432*\n\n"
-        "\ud83d\udd19 *\u041a\u0430\u043a \u044d\u0442\u043e \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442:*\n"
-        "1\ufe0f\u20e3 \u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043f\u0440\u043e\u043c\u043f\u0442 (\u0442\u0438\u043f \u0430\u043d\u0430\u043b\u0438\u0437\u0430)\n"
-        "2\ufe0f\u20e3 \u0417\u0430\u0433\u0440\u0443\u0436\u0442\u0435 \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\n"
-        "3\ufe0f\u20e3 \u041f\u043e\u043b\u0443\u0447\u0438\u0442\u0435 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\n\n"
-        "\ud83d\udc47 \u041d\u0438\u0436\u0435 \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0438\u043f \u0430\u043d\u0430\u043b\u0438\u0437\u0430:"
+        "📋 *Анализ документов*\n\n"
+        "Шаг 1️⃣ из 2: *Выберите тип анализа*\n\n"
+        f"📄 *Доступно: {len(prompts)} промптов*\n\n"
+        "🔙 *Как это работает:*\n"
+        "1️⃣ Выберите промпт (тип анализа)\n"
+        "2️⃣ Загрузите документ\n"
+        "3️⃣ Получите результат\n\n"
+        "👇 Ниже выберите тип анализа:"
     )
     
     if message:
@@ -128,7 +129,7 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
     # Verify prompt exists
     prompt = prompt_manager.get_prompt(user_id, prompt_name)
     if not prompt:
-        await query.answer("\u274c \u041f\u0440\u043e\u043c\u043f\u0442 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d", show_alert=True)
+        await query.answer("❌ Промпт не найден", show_alert=True)
         return
     
     # Save prompt to state
@@ -138,20 +139,20 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(ConversationStates.ready)
     
     text = (
-        f"\u2705 *\u041f\u0440\u043e\u043c\u043f\u0442 \u0432\u044b\u0431\u0440\u0430\u043d!*\n\n"
-        f"\ud83d\udcc4 *\u0422\u0438\u043f \u0430\u043d\u0430\u043b\u0438\u0437\u0430:* `{prompt_name}`\n"
+        f"✅ *Промпт выбран!*\n\n"
+        f"📄 *Тип анализа:* `{prompt_name}`\n"
         f"_{prompt.description}_\n\n"
-        f"\ud83d\udcc2 *\u0428\u0430\u0433 2\ufe0f\u20e3 \u0438\u0437 2:* \u0417\u0430\u0433\u0440\u0443\u0436\u0442\u0435 \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\n\n"
-        f"\ud83d\udcc4 *\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u043c\u044b\u0435 \u0444\u043e\u0440\u043c\u0430\u0442\u044b:*\n"
-        f"\u2022 PDF\n\u2022 DOCX\n\u2022 TXT\n\u2022 ZIP\n\u2022 \ud83d\udcc3 \u0424\u043e\u0442\u043e \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u0430\n\n"
-        f"\ud83d\udcc1 \u0413\u043e\u0442\u043e\u0432? \u041e\u0442\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442!"
+        f"📂 *Шаг 2️⃣ из 2:* Загрузите документ\n\n"
+        f"📄 *Поддерживаемые форматы:*\n"
+        f"• PDF\n• DOCX\n• TXT\n• ZIP\n• 📸 Фото документа\n\n"
+        f"📁 Готово? Отправьте документ!"
     )
     
     await query.message.edit_text(
         text,
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="\u00ab \u041e\u0442\u043c\u0435\u043d\u0430", callback_data="analyze_back_to_prompts")]]
+            inline_keyboard=[[InlineKeyboardButton(text="« Отмена", callback_data="analyze_back_to_prompts")]]
         ),
     )
     
@@ -166,10 +167,10 @@ async def cb_back_to_prompts(query: CallbackQuery, state: FSMContext) -> None:
     prompts = prompt_manager.list_prompts(user_id)
     
     text = (
-        "\ud83d\udcca *\u0410\u043d\u0430\u043b\u0438\u0437 \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u043e\u0432*\n\n"
-        "\u0428\u0430\u0433 1\ufe0f\u20e3 \u0438\u0437 2: *\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0438\u043f \u0430\u043d\u0430\u043b\u0438\u0437\u0430*\n\n"
-        f"\ud83d\udcc4 *\u0414\u043e\u0441\u0442\u0443\u043f\u043d\u043e: {len(prompts)} \u043f\u0440\u043e\u043c\u043f\u0442\u043e\u0432*\n\n"
-        "\ud83d\udc47 \u041d\u0438\u0436\u0435 \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0442\u0438\u043f \u0430\u043d\u0430\u043b\u0438\u0437\u0430:"
+        "📋 *Анализ документов*\n\n"
+        "Шаг 1️⃣ из 2: *Выберите тип анализа*\n\n"
+        f"📄 *Доступно: {len(prompts)} промптов*\n\n"
+        "👇 Ниже выберите тип анализа:"
     )
     
     await state.set_state(ConversationStates.selecting_prompt)
@@ -186,7 +187,7 @@ async def cb_analyze_cancel(query: CallbackQuery, state: FSMContext) -> None:
     """Cancel analyze mode."""
     await state.clear()
     
-    text = "\u274c *\u041e\u0442\u043c\u0435\u043d\u043d\u043e*\n\nVозвращаемся в режим диалога."
+    text = "❌ *Отменено*\n\nВозвращаемся в режим диалога."
     
     await query.message.edit_text(
         text,
@@ -200,7 +201,7 @@ async def cb_analyze_cancel(query: CallbackQuery, state: FSMContext) -> None:
 async def handle_document_upload(message: Message, state: FSMContext) -> None:
     """Handle document upload - extract and save."""
     if not message.document:
-        await message.answer("\u274c Документ не найден")
+        await message.answer("❌ Документ не найден")
         return
     
     document: Document = message.document
@@ -212,14 +213,14 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
     if file_size > config.MAX_FILE_SIZE:
         max_size_mb = config.MAX_FILE_SIZE / (1024 * 1024)
         await message.answer(
-            f"\u26a0\ufe0f Файл слишком большой: {file_size / (1024 * 1024):.1f} MB\n"
+            f"⚠️ Файл слишком большой: {file_size / (1024 * 1024):.1f} MB\n"
             f"Максимум: {max_size_mb:.1f} MB"
         )
         return
     
     # Show processing
     status_msg = await message.answer(
-        "\ud83d\udd0d Обрабатываю документ...\n"
+        "🔍 Обрабатываю документ...\n"
         "Скачивание и извлечение текста..."
     )
     
@@ -239,7 +240,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         file: File = await bot.get_file(document.file_id)
         
         if not file.file_path:
-            await message.answer("\u274c Не удалось получить путь к файлу")
+            await message.answer("❌ Не удалось получить путь к файлу")
             await status_msg.delete()
             return
         
@@ -252,7 +253,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         
         # Extract text
         await status_msg.edit_text(
-            "\ud83d\udd0d Обрабатываю документ...\n"
+            "🔍 Обрабатываю документ...\n"
             "Извлечение текста..."
         )
         
@@ -261,7 +262,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         
         if not extracted_text or not extracted_text.strip():
             await message.answer(
-                "\u26a0\ufe0f В документе не найден текст.\n"
+                "⚠️ В документе не найден текст.\n"
                 "Попробуйте другой файл."
             )
             await status_msg.delete()
@@ -286,12 +287,12 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         selected_prompt_name = data.get("selected_prompt_name", "default")
         
         text = (
-            f"\u2705 *Документ готов!*\n\n"
+            f"✅ *Документ готов!*\n\n"
             f"*Файл:* `{document.file_name or 'document'}`\n"
             f"*Размер:* {len(extracted_text):,} символов\n"
             f"*Тип анализа:* `{selected_prompt_name}`\n\n"
-            f"\ud83d\udcc1 Начинаю анализ...\n\n"
-            f"\ud83d\udd24 Или напишите дополнительную инструкцию, если нужно уточнить анализ."
+            f"🔄 Начинаю анализ...\n\n"
+            f"Или напишите дополнительную инструкцию для уточнения анализа."
         )
         
         await message.answer(
@@ -309,7 +310,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
     
     except Exception as e:
         logger.error(f"Error processing document: {e}")
-        await message.answer(f"\u274c Ошибка: {str(e)}")
+        await message.answer(f"❌ Ошибка: {str(e)}")
         await status_msg.delete()
     
     finally:
@@ -321,14 +322,14 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
 async def handle_photo_upload(message: Message, state: FSMContext) -> None:
     """Handle photo upload with OCR extraction (same as documents handler)."""
     if not message.photo:
-        await message.answer("\u274c Фото не найдено")
+        await message.answer("❌ Фото не найдено")
         return
     
     logger.info(f"User {message.from_user.id} uploading photo")
     
     # Show processing
     status_msg = await message.answer(
-        "\ud83d\udcc3 Обрабатываю фото...\n"
+        "📸 Обрабатываю фото...\n"
         "Распознавание текста (OCR)..."
     )
     
@@ -348,9 +349,11 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         
         if not extracted_text or not extracted_text.strip():
             await message.answer(
-                "\u26a0\ufe0f Текст в фото не найден.\n"
-                "Убедитесь что:" 
-                "\n\u2022 Фото четкое\n\u2022 Текст хорошо виден\n\u2022 Контрастный фон"
+                "⚠️ Текст в фото не найден.\n"
+                "Убедитесь что:\n"
+                "• Фото четкое\n"
+                "• Текст хорошо виден\n"
+                "• Контрастный фон"
             )
             await status_msg.delete()
             return
@@ -374,10 +377,10 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         selected_prompt_name = data.get("selected_prompt_name", "default")
         
         text = (
-            f"\u2705 *Фото готово!*\n\n"
+            f"✅ *Фото готово!*\n\n"
             f"*Размер:* {len(extracted_text):,} символов\n"
             f"*Тип анализа:* `{selected_prompt_name}`\n\n"
-            f"\ud83d\udd24 Начинаю анализ...\n\n"
+            f"🔄 Начинаю анализ...\n\n"
             f"Или напишите дополнительную инструкцию для уточнения."
         )
         
@@ -396,7 +399,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
     
     except Exception as e:
         logger.error(f"Error processing photo: {e}")
-        await message.answer(f"\u274c Ошибка: {str(e)}")
+        await message.answer(f"❌ Ошибка: {str(e)}")
         await status_msg.delete()
     
     finally:
@@ -436,7 +439,7 @@ async def _perform_analysis(
     selected_prompt_name = data.get("selected_prompt_name", "default")
     
     if not document_text:
-        await message.answer("\u26a0\ufe0f Документ не загружен.")
+        await message.answer("⚠️ Документ не загружен.")
         return
     
     logger.info(
@@ -455,7 +458,7 @@ async def _perform_analysis(
         
         if not prompt:
             await message.answer(
-                "\u274c Промпт не найден. Используется стандартный..."
+                "❌ Промпт не найден. Используется стандартный..."
             )
         
         # Build analysis command
@@ -473,7 +476,7 @@ async def _perform_analysis(
         )
         
         if not analysis_result:
-            await message.answer("\u274c Анализ не удался. Попробуйте ещё раз.")
+            await message.answer("❌ Анализ не удался. Попробуйте ещё раз.")
             return
         
         # Split and send
@@ -500,7 +503,7 @@ async def _perform_analysis(
     
     except Exception as e:
         logger.error(f"Analysis error: {e}")
-        await message.answer(f"\u274c Ошибка: {str(e)[:100]}")
+        await message.answer(f"❌ Ошибка: {str(e)[:100]}")
 
 
 async def _extract_text_from_photo_for_analysis(
@@ -582,7 +585,7 @@ async def cb_doc_clear(query: CallbackQuery, state: FSMContext) -> None:
     """Clear document (legacy)."""
     await state.clear()
     await state.set_state(ConversationStates.ready)
-    await query.message.answer("\ud83d\uddd1\ufe0f Документ очищен. Загрузите новый.")
+    await query.message.answer("🗑️ Документ очищен. Загрузите новый.")
     await query.answer()
 
 
@@ -594,7 +597,7 @@ async def cb_doc_info(query: CallbackQuery, state: FSMContext) -> None:
     document_size = data.get("document_size", 0)
     
     text = (
-        f"\ud83d\udcc2 *Информация о документе*\n\n"
+        f"📊 *Информация о документе*\n\n"
         f"*Имя:* `{document_name}`\n"
         f"*Размер:* {document_size:,} символов"
     )
