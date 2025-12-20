@@ -1,15 +1,23 @@
 """File processing converter orchestrator.
 
-Coordinates extraction of text from various file formats (PDF, DOCX, ZIP, Excel).
+Coordinates extraction of text from various file formats (PDF, DOCX, ZIP, Excel, DOC).
 Handles file routing to appropriate parser.
+AUTOMATIC .doc → .docx conversion using LibreOffice.
+
+Fixes 2025-12-20 23:40:
+- КРИТИЧЕСКОЕ: Автоматическая конвертация .doc → .docx
+- Не нужно ручно конвертировать, всё выполняется автоматически
+- LibreOffice в фоне конвертирует на лету
+- Graceful fallback если LibreOffice не установлен
 
 Fixes 2025-12-20 22:10:
 - Добавлена поддержка Excel файлов (.xlsx, .xls)
-- Используется openpyxl для парсинга таблиц
+- Используется openpyxl и xlrd для парсинга таблиц
 - Логирование ошибок формата улучшено
 """
 
 import logging
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -27,6 +35,7 @@ class FileConverter:
     """Converter for extracting text from various file formats.
     
     Supports: PDF, DOCX, TXT, ZIP archives, Excel (.xlsx, .xls)
+    Also supports old .doc files (auto-converts to .docx using LibreOffice)
     Delegates to specialized parsers for each format.
     """
     
@@ -57,10 +66,11 @@ class FileConverter:
         
         Routes to appropriate parser based on file format.
         For ZIP files, extracts supported files and combines text.
+        For .doc files, automatically converts to .docx using LibreOffice.
         
         Args:
             file_path: Path to file
-            temp_dir: Directory for temporary files (required for ZIP)
+            temp_dir: Directory for temporary files (required for ZIP and .doc conversion)
             
         Returns:
             str: Extracted text
@@ -87,6 +97,24 @@ class FileConverter:
         file_suffix = file_path.suffix.lower()
         
         try:
+            # КРИТИЧЕСКОЕ: Обработка .doc файлов - конвертация в .docx
+            if file_suffix == ".doc":
+                logger.info(f"Processing DOC: {file_path.name}")
+                if not temp_dir:
+                    raise ValueError("temp_dir required for .doc conversion")
+                
+                # Конвертируем .doc в .docx
+                docx_path = self._convert_doc_to_docx(file_path, temp_dir)
+                if not docx_path:
+                    raise ValueError(
+                        "Failed to convert .doc file. "
+                        "Install LibreOffice: pip install libreoffice or apt-get install libreoffice"
+                    )
+                logger.info(f"Converted to: {docx_path.name}")
+                file_path = docx_path
+                file_suffix = ".docx"
+            
+            # Обычная обработка
             if file_suffix == ".pdf":
                 logger.info(f"Processing PDF: {file_path.name}")
                 return self.pdf_parser.extract_text(file_path)
@@ -115,6 +143,73 @@ class FileConverter:
         except Exception as e:
             logger.error(f"Error extracting text from {file_path.name}: {e}")
             raise
+    
+    def _convert_doc_to_docx(self, doc_path: Path, temp_dir: Path) -> Optional[Path]:
+        """Convert .doc file to .docx using LibreOffice.
+        
+        Runs LibreOffice in headless mode to convert old .doc format to .docx.
+        Timeout: 30 seconds per file.
+        
+        Args:
+            doc_path: Path to .doc file
+            temp_dir: Directory for output
+            
+        Returns:
+            Path to converted .docx file, or None if conversion failed
+        """
+        try:
+            docx_path = temp_dir / f"{doc_path.stem}.docx"
+            
+            logger.info(f"Converting .doc to .docx: {doc_path.name} -> {docx_path.name}")
+            
+            # LibreOffice команда:
+            # --headless: акна в фоне
+            # --convert-to docx: конвертировать в DOCX
+            # --outdir: выходный каталог
+            cmd = [
+                "soffice",
+                "--headless",
+                "--convert-to", "docx",
+                "--outdir", str(temp_dir),
+                str(doc_path),
+            ]
+            
+            logger.debug(f"Running: {' '.join(cmd)}")
+            
+            # Запускаем конверсию
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+            
+            if result.returncode != 0:
+                logger.error(f"LibreOffice exit code: {result.returncode}")
+                logger.error(f"STDERR: {result.stderr.decode()[:300]}")
+                return None
+            
+            # Проверяем, что файл создан
+            if docx_path.exists():
+                size = docx_path.stat().st_size
+                logger.info(f"Conversion successful: {docx_path.name} ({size} bytes)")
+                return docx_path
+            else:
+                logger.error(f"Output file not found: {docx_path}")
+                return None
+        
+        except subprocess.TimeoutExpired:
+            logger.error(f"LibreOffice timeout for {doc_path.name}")
+            return None
+        except FileNotFoundError:
+            logger.error(
+                "LibreOffice (soffice) not found. "
+                "Install: pip install libreoffice OR apt-get install libreoffice"
+            )
+            return None
+        except Exception as e:
+            logger.error(f"Conversion error: {type(e).__name__}: {e}")
+            return None
     
     def _extract_text_file(self, file_path: Path) -> str:
         """Extract text from plain text file.
