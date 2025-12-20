@@ -1,5 +1,10 @@
 """Prompt management handlers.
 
+Fixes 2025-12-20 16:45:
+- Show FULL prompt text when editing (not truncated [:300])
+- User now sees complete prompt to edit, not just first 300 characters
+- Prevents confusion when editing truncated text
+
 Fixes 2025-12-20 16:32:
 - Added 'Back' button after editing prompt (returns to prompt detail screen)
 - Fixed save confirmation message - shows what was changed
@@ -415,16 +420,18 @@ async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
         
         if edit_type == "system":
             await state.set_state(PromptStates.editing_system)
+            # Show FULL text - no truncation!
             text = (
                 f"✏️ *Редактировать: {prompt_name}*\n\n"
-                f"Текущий системный промпт:\n`{prompt.system_prompt[:300]}...`\n\n"
+                f"Текущий системный промпт:\n`{prompt.system_prompt}`\n\n"
                 f"Введите новый системный промпт:"
             )
         else:  # user
             await state.set_state(PromptStates.editing_user)
+            # Show FULL text - no truncation!
             text = (
                 f"✏️ *Редактировать: {prompt_name}*\n\n"
-                f"Текущий промпт пользователя:\n`{prompt.user_prompt_template[:300]}...`\n\n"
+                f"Текущий промпт пользователя:\n`{prompt.user_prompt_template}`\n\n"
                 f"Введите новый промпт пользователя:"
             )
         
