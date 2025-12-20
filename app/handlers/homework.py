@@ -1,7 +1,11 @@
 """Homework checking handler.
 
+Fixes 2025-12-20:
+- Implemented pytesseract OCR for automatic photo text extraction
+- Removed caption requirement - photos are processed automatically
+- All responses in Russian
+
 Handles /homework command for checking student homework.
-NOTE: Photos require caption/description from user (no automated OCR due to API latency).
 """
 
 import logging
@@ -109,8 +113,8 @@ async def select_subject(
             f"💬 {subject.description}\n\n"
             f"<b>📄 Отправьте:</b>\n"
             f"• Текст с решением\n"
-            f"• PDF или DOCX (с текстом)\n"
-            f"• Фото + подпись (напишите решение в капшн)"
+            f"• Фото (текст распознается автоматически)\n"
+            f"• PDF или DOCX файл"
         ),
         parse_mode="HTML",
         reply_markup=None
@@ -153,10 +157,10 @@ async def process_homework_file(
             await processing_msg.edit_text(
                 text=(
                     f"❌ Не удалось получить текст\n\n"
-                    f"<b>Попробуйте:</b>\n"
-                    f"• <code>Напишите решение текстом</code>\n"
-                    f"• <code>Отослите PDF/DOCX с текстом</code>\n"
-                    f"• <code>К фото добавьте капшн (подпись)</code>"
+                    f"<b>Проверьте:</b>\n"
+                    f"• Фото должно быть четким\n"
+                    f"• Текст должен быть читаемым\n"
+                    f"• Или отправьте текст сообщением"
                 ),
                 parse_mode="HTML"
             )
@@ -202,8 +206,8 @@ async def _extract_content(message: Message) -> str:
     
     Handles:
     - Text messages (direct text)
-    - PDF/DOCX files (extract text via existing parsers)
-    - Photos (uses caption/description provided by user)
+    - PDF/DOCX files (extract text via parsers)
+    - Photos (OCR with pytesseract)
     
     Args:
         message: Message with file or text
@@ -215,20 +219,67 @@ async def _extract_content(message: Message) -> str:
     if message.text:
         return message.text
     
-    # Handle photo - use caption from user
+    # Handle photo - use Tesseract OCR
     if message.photo:
-        if message.caption and message.caption.strip():
-            logger.info(f"Using photo caption as content ({len(message.caption)} chars)")
-            return message.caption
-        else:
-            logger.warning("Photo sent without caption/description")
-            return ""  # Empty - will trigger error message
+        return await _extract_text_from_photo(message)
     
     # Handle document
     if message.document:
         return await _extract_text_from_document(message)
     
     raise ValueError("Неподдерживаемый тип содержимого")
+
+
+async def _extract_text_from_photo(message: Message) -> str:
+    """Extract text from photo using Tesseract OCR.
+    
+    Args:
+        message: Message with photo
+        
+    Returns:
+        Extracted text from photo
+    """
+    try:
+        import pytesseract
+        from PIL import Image
+        
+        # Get largest photo
+        photo = message.photo[-1]
+        file_info = await message.bot.get_file(photo.file_id)
+        
+        # Download photo
+        settings = get_settings()
+        temp_dir = Path(settings.TEMP_DIR)
+        temp_dir.mkdir(exist_ok=True)
+        
+        temp_file = temp_dir / f"photo_{photo.file_unique_id}.jpg"
+        await message.bot.download_file(file_info.file_path, temp_file)
+        
+        try:
+            # Open image
+            image = Image.open(temp_file)
+            
+            # Extract text using Tesseract with Russian language
+            text = pytesseract.image_to_string(
+                image,
+                lang='rus+eng',  # Russian + English
+                config='--psm 6'  # Assume uniform block of text
+            )
+            
+            logger.info(f"OCR: Extracted {len(text)} chars from photo")
+            return text.strip()
+        
+        finally:
+            # Clean up
+            if temp_file.exists():
+                temp_file.unlink()
+    
+    except ImportError:
+        logger.error("pytesseract not installed. Install: pip install pytesseract")
+        return ""
+    except Exception as e:
+        logger.error(f"Failed to extract text from photo via OCR: {e}")
+        return ""
 
 
 async def _extract_text_from_document(message: Message) -> str:
