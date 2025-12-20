@@ -1,5 +1,10 @@
 """Prompt management handlers.
 
+Fixes 2025-12-20 16:59:
+- Fixed green checkmark on ALL prompts (is_custom was always True) - now only shows on user-created prompts
+- Fixed 'prompt too short' error after reload - reload prompts before displaying details
+- Fixed Telegram markdown parsing error - escape asterisks in text content
+
 Fixes 2025-12-20 16:45:
 - Show FULL prompt text when editing (not truncated [:300])
 - User now sees complete prompt to edit, not just first 300 characters
@@ -29,6 +34,22 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 prompt_manager = PromptManager()
+
+
+def escape_markdown(text: str) -> str:
+    """Escape special markdown characters in text.
+    
+    Args:
+        text: Text to escape
+        
+    Returns:
+        str: Escaped text safe for markdown
+    """
+    # Escape markdown special characters
+    special_chars = ['*', '_', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
 
 
 # Inline keyboards
@@ -65,7 +86,7 @@ def get_prompts_list_keyboard(user_id: int) -> InlineKeyboardMarkup:
 def get_prompt_detail_keyboard(prompt_name: str, is_custom: bool) -> InlineKeyboardMarkup:
     """Keyboard for prompt details."""
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Использовать по умолчанию", callback_data=f"prompt_set_default_{prompt_name}")
+    builder.button(text="✅ Установить по умолчанию", callback_data=f"prompt_set_default_{prompt_name}")
     builder.button(text="✏️ Редактировать", callback_data=f"prompt_edit_{prompt_name}")
     if is_custom:
         builder.button(text="🗑️ Удалить", callback_data=f"prompt_delete_{prompt_name}")
@@ -100,17 +121,17 @@ async def start_prompts_mode(callback: CallbackQuery = None, message: Message = 
     text = (
         "🎯 *Управление промптами*\n\n"
         "💡 *Что такое промпт?*\n"
-        "Промпт - это инструкция для ИИ, как анализировать документы.\n\n"
+        "Промпт \- это инструкция для ИИ, как анализировать документы.\n\n"
         "📝 *Как работать:*\n"
-        "1️⃣ *Просмотреть* - увидеть все доступные промпты\n"
+        "1️⃣ *Просмотреть* \- увидеть все доступные промпты\n"
         "2️⃣ *Выбрать* промпт из списка\n"
-        "3️⃣ *Использовать по умолчанию* - активировать промпт\n"
-        "4️⃣ *Создать новый* - сделать свой промпт\n"
-        "5️⃣ *Редактировать* - изменить промпт\n\n"
+        "3️⃣ *Использовать по умолчанию* \- активировать промпт\n"
+        "4️⃣ *Создать новый* \- сделать свой промпт\n"
+        "5️⃣ *Редактировать* \- изменить промпт\n\n"
         "🎯 *Пример использования:*\n"
         "• Нажмите 'Просмотреть промпты'\n"
         "• Выберите 'default' (стандартный)\n"
-        "• Нажмите 'Использовать по умолчанию'\n"
+        "• Нажмите 'Установить по умолчанию'\n"
         "• Теперь все анализы будут с этим промптом!\n\n"
         "👇 Выберите действие:"
     )
@@ -167,11 +188,13 @@ async def cb_prompts_menu(query: CallbackQuery, state: FSMContext) -> None:
 async def cb_prompts_list(query: CallbackQuery) -> None:
     """Show list of prompts."""
     user_id = query.from_user.id
+    # Reload prompts to ensure latest data
+    prompt_manager.load_user_prompts(user_id)
     prompts = prompt_manager.list_prompts(user_id)
     user_prompts = prompt_manager.get_user_prompts(user_id)
     
     text = (
-        f"📝 *Доступные промпты* (всего: {len(prompts)})\n\n"
+        f"📝 *Доступные промпты* \(всего: {len(prompts)})\n\n"
         f"👉 Нажмите на промпт чтобы увидеть детали:"
     )
     
@@ -189,18 +212,27 @@ async def cb_prompt_select(query: CallbackQuery) -> None:
     user_id = query.from_user.id
     prompt_name = query.data.replace("prompt_select_", "")
     
+    # Reload prompts to ensure latest data
+    prompt_manager.load_user_prompts(user_id)
     prompt = prompt_manager.get_prompt(user_id, prompt_name)
+    
     if not prompt:
         await query.answer("❌ Промпт не найден")
         return
     
-    is_custom = prompt_name in prompt_manager.get_user_prompts(user_id)
+    # Check if this is user-created (in user_prompts dict, NOT in system defaults only)
+    user_prompts = prompt_manager.get_user_prompts(user_id)
+    is_custom = prompt_name in user_prompts
+    
+    # Escape markdown in prompts to avoid parsing errors
+    system_escaped = escape_markdown(prompt.system_prompt[:200])
+    user_escaped = escape_markdown(prompt.user_prompt_template[:200])
     
     text = (
         f"📝 *{prompt.name.upper()}*\n\n"
         f"_{prompt.description}_\n\n"
-        f"*Системный промпт:*\n`{prompt.system_prompt[:200]}...`\n\n"
-        f"*Промпт пользователя:*\n`{prompt.user_prompt_template[:200]}...`\n\n"
+        f"*Системный промпт:*\n`{system_escaped}...`\n\n"
+        f"*Промпт пользователя:*\n`{user_escaped}...`\n\n"
         f"👇 Что хотите сделать?"
     )
     
@@ -220,7 +252,7 @@ async def cb_prompt_create(query: CallbackQuery, state: FSMContext) -> None:
     text = (
         "➕ *Создать новый промпт*\n\n"
         "Шаг 1️⃣ из 3\n\n"
-        "Введите имя промпта (например: 'my_analyzer', 'contract_review'):"
+        "Введите имя промпта \(например: 'my_analyzer', 'contract_review'):"
     )
     
     await query.message.edit_text(
@@ -240,7 +272,7 @@ async def msg_prompt_name(message: Message, state: FSMContext) -> None:
     
     if not name or len(name) > 30:
         await message.answer(
-            "❌ Неверное имя. Должно быть 1-30 символов.\n"
+            "❌ Неверное имя. Должно быть 1\-30 символов.\n"
             "Попробуйте снова:"
         )
         return
@@ -251,7 +283,7 @@ async def msg_prompt_name(message: Message, state: FSMContext) -> None:
     text = (
         "➕ *Создать новый промпт*\n\n"
         "Шаг 2️⃣ из 3\n\n"
-        "Введите *системный промпт* (инструкции для ИИ):\n\n"
+        "Введите *системный промпт* \(инструкции для ИИ):\n\n"
         "_Пример:_ 'Ты юридический эксперт. Внимательно проверяй договора.'"
     )
     
@@ -269,7 +301,7 @@ async def msg_system_prompt(message: Message, state: FSMContext) -> None:
     
     if not system_prompt or len(system_prompt) < 10:
         await message.answer(
-            "❌ Системный промпт слишком короткий (минимум 10 символов).\n"
+            "❌ Системный промпт слишком короткий \(минимум 10 символов).\n"
             "Попробуйте снова:"
         )
         return
@@ -297,7 +329,7 @@ async def msg_user_prompt(message: Message, state: FSMContext) -> None:
     
     if not user_prompt or len(user_prompt) < 10:
         await message.answer(
-            "❌ Промпт пользователя слишком короткий (минимум 10 символов).\n"
+            "❌ Промпт пользователя слишком короткий \(минимум 10 символов).\n"
             "Попробуйте снова:"
         )
         return
@@ -396,7 +428,7 @@ async def cb_prompt_delete_final(query: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("prompt_edit_"))
 async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
-    """Edit prompt - show options."""
+    """Edit prompt \- show options."""
     # Extract prompt name (handle both prompt_edit_X and prompt_edit_system_X/prompt_edit_user_X)
     if query.data.startswith("prompt_edit_system_"):
         prompt_name = query.data.replace("prompt_edit_system_", "")
@@ -408,6 +440,8 @@ async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
         prompt_name = query.data.replace("prompt_edit_", "")
         edit_type = None
     
+    # Reload prompts to ensure latest data
+    prompt_manager.load_user_prompts(query.from_user.id)
     prompt = prompt_manager.get_prompt(query.from_user.id, prompt_name)
     
     if not prompt:
@@ -488,11 +522,14 @@ async def msg_edit_system(message: Message, state: FSMContext) -> None:
         system_prompt=new_system,
     )
     
+    # Escape markdown for display
+    display_text = escape_markdown(new_system[:100])
+    
     # Show success with back button to prompt detail
     await message.answer(
         f"✅ *Системный промпт обновлён!*\n\n"
         f"Промпт: `{prompt_name}`\n"
-        f"Новое значение: {new_system[:100]}...",
+        f"Новое значение: {display_text}...",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="« Назад к промпту", callback_data=f"prompt_select_{prompt_name}")]]
@@ -523,11 +560,14 @@ async def msg_edit_user(message: Message, state: FSMContext) -> None:
         user_prompt_template=new_user,
     )
     
+    # Escape markdown for display
+    display_text = escape_markdown(new_user[:100])
+    
     # Show success with back button to prompt detail
     await message.answer(
         f"✅ *Промпт пользователя обновлён!*\n\n"
         f"Промпт: `{prompt_name}`\n"
-        f"Новое значение: {new_user[:100]}...",
+        f"Новое значение: {display_text}...",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="« Назад к промпту", callback_data=f"prompt_select_{prompt_name}")]]
@@ -564,6 +604,8 @@ async def cb_prompt_set_default(query: CallbackQuery, state: FSMContext) -> None
 async def cb_prompts_manage(query: CallbackQuery) -> None:
     """Show manage prompts menu."""
     user_id = query.from_user.id
+    # Reload prompts to ensure latest data
+    prompt_manager.load_user_prompts(user_id)
     user_prompts = prompt_manager.get_user_prompts(user_id)
     
     text = (
