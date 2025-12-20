@@ -1,5 +1,9 @@
 """Prompt management system for custom AI prompts.
 
+Fixes 2025-12-20 17:25:
+- Fixed SyntaxError: emoji characters in dictionary keys must be quoted strings
+- Changed _HOMEWORK_SUBJECTS dictionary structure to properly quote all strings
+
 Fixes 2025-12-20 17:19:
 - Created SEPARATE homework_system prompts for EACH subject
 - Each subject has own editable prompt (math_homework, russian_homework, etc.)
@@ -202,16 +206,16 @@ class PromptManager:
         ),
     }
     
-    # Add homework prompts for each subject
+    # Homework subjects mapping (for creating homework prompts per subject)
     _HOMEWORK_SUBJECTS = {
         "math": "🔢 Математика",
         "russian": "🔤 Русский язык",
-        "english": 🇬🇷 Английский язык",
+        "english": "🇬🇷 Английский язык",
         "physics": "⚡ Физика",
         "chemistry": "🧠 Химия",
-        "cs": 💻 Информатика",
-        "geography": 🌍 География",
-        "literature": 📖 Литература",
+        "cs": "💻 Информатика",
+        "geography": "🌍 География",
+        "literature": "📖 Литература",
     }
     
     # Initialize homework prompts
@@ -227,7 +231,7 @@ class PromptManager:
                 "Будь мотивирующим и поддерживающим в своем тоне."
             ),
             user_prompt_template=f"Проверь это домашнее задание по {_subject_emoji_name}:",
-            description=f"{_subject_emoji_name}",
+            description=_subject_emoji_name,
         )
     
     # Prompt categories for UI organization
