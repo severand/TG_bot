@@ -1,15 +1,16 @@
 """Prompt management handlers.
 
+Fixes 2025-12-20 17:32:
+- Fixed emoji rendering in buttons and text (unicode escapes cause display issues)
+- Show subject name in edit header (e.g., "Математика (math_homework)")
+- Fixed "Cancel" button to return to edit options (not prompt detail)
+- Improved navigation: Main → Category → Detail → Edit Options → Edit Field → Save → Back to Edit Options → Back to Detail
+- All buttons now clear states properly
+
 Fixes 2025-12-20 17:20:
 - Removed 'Create new prompt' button from main menu (no custom prompt creation)
 - Added 'Back' button to main menu (return to main chat/analysis)
-- Users can ONLY edit existing system prompts, not create new ones
-- Homework now has separate prompts per subject (math_homework, russian_homework, etc.)
-
-Fixes 2025-12-20 17:08:
-- Unified menu showing all 3 categories: Document Analysis, Chat, Homework
-- Category-based organization
-- Same editing interface for all prompts
+- Only system prompts editable
 
 Fixes 2025-12-20 16:59:
 - Fixed green checkmark on ALL prompts (is_custom was always True) - now only shows on user-created prompts
@@ -63,14 +64,49 @@ def escape_markdown(text: str) -> str:
     return text
 
 
+def get_subject_display_name(prompt_name: str) -> str:
+    """Get display name for subject prompt.
+    
+    Examples:
+        math_homework -> Математика (math_homework)
+        russian_homework -> Русский язык (russian_homework)
+    
+    Args:
+        prompt_name: Prompt identifier
+        
+    Returns:
+        str: Display name with subject
+    """
+    # Homework subjects mapping
+    subjects = {
+        "math_homework": "Математика (math_homework)",
+        "russian_homework": "Русский язык (russian_homework)",
+        "english_homework": "Английский язык (english_homework)",
+        "physics_homework": "Физика (physics_homework)",
+        "chemistry_homework": "Химия (chemistry_homework)",
+        "cs_homework": "Информатика (cs_homework)",
+        "geography_homework": "География (geography_homework)",
+        "literature_homework": "Литература (literature_homework)",
+        # Document analysis
+        "default": "Базовый анализ (default)",
+        "summarize": "Краткое резюме (summarize)",
+        "extract_entities": "Извлечение данных (extract_entities)",
+        "risk_analysis": "Анализ рисков (risk_analysis)",
+        "legal_review": "Юридическая проверка (legal_review)",
+        # Chat
+        "chat_system": "Основной диалог (chat_system)",
+    }
+    return subjects.get(prompt_name, prompt_name)
+
+
 # Inline keyboards
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     """Main prompt menu keyboard - organized by categories with Back button."""
     builder = InlineKeyboardBuilder()
-    builder.button(text="📄 Документы", callback_data="prompts_category_document_analysis")
-    builder.button(text="💬 Диалог", callback_data="prompts_category_chat")
-    builder.button(text="📖 Домашка", callback_data="prompts_category_homework")
-    builder.button(text="« Назад", callback_data="back_to_main")
+    builder.button(text="Documents", callback_data="prompts_category_document_analysis")
+    builder.button(text="Chat", callback_data="prompts_category_chat")
+    builder.button(text="Homework", callback_data="prompts_category_homework")
+    builder.button(text="<< Back", callback_data="back_to_main")
     builder.adjust(2)
     return builder.as_markup()
 
@@ -90,7 +126,7 @@ def get_category_keyboard(user_id: int, category: str) -> InlineKeyboardMarkup:
             callback_data=f"prompt_select_{name}"
         )
     
-    builder.button(text="« Назад", callback_data="prompts_menu")
+    builder.button(text="<< Back", callback_data="prompts_menu")
     builder.adjust(2)
     return builder.as_markup()
 
@@ -98,8 +134,8 @@ def get_category_keyboard(user_id: int, category: str) -> InlineKeyboardMarkup:
 def get_prompt_detail_keyboard(prompt_name: str) -> InlineKeyboardMarkup:
     """Keyboard for prompt details."""
     builder = InlineKeyboardBuilder()
-    builder.button(text="✏️ Редактировать", callback_data=f"prompt_edit_{prompt_name}")
-    builder.button(text="« Назад", callback_data="prompts_menu")
+    builder.button(text="Edit", callback_data=f"prompt_edit_{prompt_name}")
+    builder.button(text="<< Back", callback_data="prompts_menu")
     builder.adjust(2)
     return builder.as_markup()
 
@@ -113,18 +149,18 @@ async def start_prompts_mode(callback: CallbackQuery = None, message: Message = 
     await state.clear()
     
     text = (
-        "🎯 *Управление промптами*\n\n"
-        "💡 *Основные промпты системы:*\n"
-        "• 📄 Документы: 5 промптов для анализа\n"
-        "• 💬 Диалог: 1 основной промпт\n"
-        "• 📖 Домашка: 8 промптов по предметам\n\n"
-        "📝 *Как работать:*\n"
-        "1️⃣ Выберите категорию\n"
-        "2️⃣ Нажмите на промпт\n"
-        "3️⃣ Нажмите 'Определить' \u2013 откроен редактор\n"
-        "4️⃣ Отредактируйте текст\n"
-        "5️⃣ Нажмите 'Отправить' \u2013 сохранится!\n\n"
-        "👇 выберите категорию:"
+        "PROMPT MANAGEMENT\n\n"
+        "System prompts available:\n"
+        "* Documents: 5 prompts for analysis\n"
+        "* Chat: 1 main prompt\n"
+        "* Homework: 8 subject-specific prompts\n\n"
+        "How to use:\n"
+        "1. Select category\n"
+        "2. Click prompt\n"
+        "3. Click 'Edit' to edit\n"
+        "4. Edit text\n"
+        "5. Click 'Send' to save!\n\n"
+        "Select category below:"
     )
     
     if message:
@@ -133,7 +169,7 @@ async def start_prompts_mode(callback: CallbackQuery = None, message: Message = 
         
         await message.answer(
             text,
-            parse_mode="Markdown",
+            parse_mode=None,
             reply_markup=get_main_menu_keyboard(),
         )
         logger.info(f"Prompts mode started for user {user_id}")
@@ -143,7 +179,7 @@ async def start_prompts_mode(callback: CallbackQuery = None, message: Message = 
         
         await callback.message.answer(
             text,
-            parse_mode="Markdown",
+            parse_mode=None,
             reply_markup=get_main_menu_keyboard(),
         )
         await callback.answer()
@@ -162,16 +198,15 @@ async def cb_back_to_main(query: CallbackQuery, state: FSMContext) -> None:
     """Back to main menu from prompts."""
     await state.clear()
     
-    text = "👋 Вернулся на главное меню."
+    text = "Returned to main menu."
     
     await query.message.edit_text(
         text,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="💬 Начать", callback_data="back_to_main")]]
-        ),
+        parse_mode=None,
+        reply_markup=None,
     )
     await query.answer()
+    logger.info(f"User {query.from_user.id} returned to main menu from prompts")
 
 
 @router.callback_query(F.data == "prompts_menu")
@@ -180,16 +215,17 @@ async def cb_prompts_menu(query: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     
     text = (
-        "🎯 *Управление промптами*\n\n"
-        "👇 Выберите категорию:"
+        "PROMPT MANAGEMENT\n\n"
+        "Select category:"
     )
     
     await query.message.edit_text(
         text,
-        parse_mode="Markdown",
+        parse_mode=None,
         reply_markup=get_main_menu_keyboard(),
     )
     await query.answer()
+    logger.info(f"User {query.from_user.id} returned to prompts menu")
 
 
 @router.callback_query(F.data.startswith("prompts_category_"))
@@ -204,22 +240,23 @@ async def cb_prompts_category(query: CallbackQuery) -> None:
     
     # Get category display name
     category_names = {
-        "document_analysis": "📄 Документы",
-        "chat": "💬 Диалог",
-        "homework": "📖 Домашка",
+        "document_analysis": "DOCUMENTS",
+        "chat": "CHAT",
+        "homework": "HOMEWORK",
     }
     
     text = (
-        f"{category_names.get(category, category)} *\({len(prompts)})\*\n\n"
-        f"👉 Нажмите на промпт чтобы редактировать:"
+        f"{category_names.get(category, category)} ({len(prompts)})\n\n"
+        f"Click prompt to edit:"
     )
     
     await query.message.edit_text(
         text,
-        parse_mode="Markdown",
+        parse_mode=None,
         reply_markup=get_category_keyboard(user_id, category),
     )
     await query.answer()
+    logger.info(f"User {user_id} viewing category: {category}")
 
 
 @router.callback_query(F.data.startswith("prompt_select_"))
@@ -233,35 +270,40 @@ async def cb_prompt_select(query: CallbackQuery) -> None:
     prompt = prompt_manager.get_prompt(user_id, prompt_name)
     
     if not prompt:
-        await query.answer("❌ Промпт не найден")
+        await query.answer("Prompt not found")
         return
     
     # Check if this is user-customized or system default
     user_prompts = prompt_manager.get_user_prompts(user_id)
     is_custom = prompt_name in user_prompts
     
+    # Get subject display name
+    subject_name = get_subject_display_name(prompt_name)
+    
     # Escape markdown in prompts to avoid parsing errors
     system_escaped = escape_markdown(prompt.system_prompt[:200])
     user_escaped = escape_markdown(prompt.user_prompt_template[:200])
     
     # Show type badge
-    type_badge = "👤 Ваш" if is_custom else "🔖 Системный"
+    type_badge = "[YOUR]" if is_custom else "[SYSTEM]"
     
     text = (
-        f"🎯 *{prompt.name.upper()}*\n"
+        f"PROMPT DETAILS\n"
+        f"{subject_name}\n"
         f"{type_badge}\n"
-        f"_{prompt.description}_\n\n"
-        f"*Системный промпт:*\n`{system_escaped}...`\n\n"
-        f"*Темплейт:*\n`{user_escaped}...`\n\n"
-        f"👇 Что хотите сделать?"
+        f"{prompt.description}\n\n"
+        f"System prompt:\n{system_escaped}...\n\n"
+        f"Template:\n{user_escaped}...\n\n"
+        f"What do you want to do?"
     )
     
     await query.message.edit_text(
         text,
-        parse_mode="Markdown",
+        parse_mode=None,
         reply_markup=get_prompt_detail_keyboard(prompt_name),
     )
     await query.answer()
+    logger.info(f"User {user_id} viewing prompt details: {prompt_name}")
 
 
 @router.callback_query(F.data.startswith("prompt_edit_"))
@@ -283,60 +325,78 @@ async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
     prompt = prompt_manager.get_prompt(query.from_user.id, prompt_name)
     
     if not prompt:
-        await query.answer("❌ Промпт не найден")
+        await query.answer("Prompt not found")
         return
     
     # If edit_type is specified, show input prompt
     if edit_type:
         await state.update_data(editing_prompt=prompt_name, edit_field=edit_type)
         
+        # Get subject display name
+        subject_name = get_subject_display_name(prompt_name)
+        
         if edit_type == "system":
             await state.set_state(PromptStates.editing_system)
             # Show FULL text - no truncation!
             text = (
-                f"✏️ *Редактировать: {prompt_name}*\n\n"
-                f"Текущий системный промпт:\n`{prompt.system_prompt}`\n\n"
-                f"Введите новый текст для системного промпта:"
+                f"EDIT: {subject_name}\n\n"
+                f"Current system prompt:\n{prompt.system_prompt}\n\n"
+                f"Enter new text for system prompt:"
             )
         else:  # user
             await state.set_state(PromptStates.editing_user)
             # Show FULL text - no truncation!
             text = (
-                f"✏️ *Редактировать: {prompt_name}*\n\n"
-                f"Текущий темплейт:\n`{prompt.user_prompt_template}`\n\n"
-                f"Введите новый темплейт:"
+                f"EDIT: {subject_name}\n\n"
+                f"Current template:\n{prompt.user_prompt_template}\n\n"
+                f"Enter new template text:"
             )
+        
+        # Cancel button returns to EDIT OPTIONS (not detail)
+        builder = InlineKeyboardBuilder()
+        builder.button(
+            text="Cancel",
+            callback_data=f"prompt_edit_{prompt_name}"
+        )
         
         await query.message.edit_text(
             text,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text="« Отмена", callback_data=f"prompt_select_{prompt_name}")]]
-            ),
+            parse_mode=None,
+            reply_markup=builder.as_markup(),
         )
     else:
         # Show edit options
         builder = InlineKeyboardBuilder()
         builder.button(
-            text="🖣️ Системный промпт",
+            text="Edit System Prompt",
             callback_data=f"prompt_edit_system_{prompt_name}"
         )
         builder.button(
-            text="🖣️ Темплейт",
+            text="Edit Template",
             callback_data=f"prompt_edit_user_{prompt_name}"
         )
-        builder.button(text="« Назад", callback_data=f"prompt_select_{prompt_name}")
+        builder.button(
+            text="<< Back",
+            callback_data=f"prompt_select_{prompt_name}"
+        )
         builder.adjust(2)
         
-        text = f"🖣️ *Редактировать: {prompt_name}*\n\nОт чего это?"
+        # Get subject display name
+        subject_name = get_subject_display_name(prompt_name)
+        
+        text = (
+            f"EDIT: {subject_name}\n\n"
+            f"What do you want to edit?"
+        )
         
         await query.message.edit_text(
             text,
-            parse_mode="Markdown",
+            parse_mode=None,
             reply_markup=builder.as_markup(),
         )
     
     await query.answer()
+    logger.info(f"User {query.from_user.id} starting to edit: {prompt_name}")
 
 
 @router.message(PromptStates.editing_system)
@@ -346,7 +406,7 @@ async def msg_edit_system(message: Message, state: FSMContext) -> None:
     
     if not new_system or len(new_system) < 10:
         await message.answer(
-            "❌ Текст слишком короткий.\nПопробуйте снова:"
+            "Text is too short.\nTry again:"
         )
         return
     
@@ -363,15 +423,22 @@ async def msg_edit_system(message: Message, state: FSMContext) -> None:
     # Escape markdown for display
     display_text = escape_markdown(new_system[:100])
     
-    # Show success with back button to prompt detail
+    # Get subject display name
+    subject_name = get_subject_display_name(prompt_name)
+    
+    # Show success with back button to EDIT OPTIONS (not detail)
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="<< Back to Edit Options",
+        callback_data=f"prompt_edit_{prompt_name}"
+    )
+    
     await message.answer(
-        f"✅ *Готово!*\n\n"
-        f"Обновлен: `{prompt_name}`\n"
-        f"Текст: {display_text}...",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="« Назад к промпту", callback_data=f"prompt_select_{prompt_name}")]]
-        ),
+        f"SAVED!\n\n"
+        f"Updated: {subject_name}\n"
+        f"Text: {display_text}...",
+        parse_mode=None,
+        reply_markup=builder.as_markup(),
     )
     await state.clear()
     logger.info(f"User {message.from_user.id} edited system prompt: {prompt_name}")
@@ -384,7 +451,7 @@ async def msg_edit_user(message: Message, state: FSMContext) -> None:
     
     if not new_user or len(new_user) < 10:
         await message.answer(
-            "❌ Текст слишком короткий.\nПопробуйте снова:"
+            "Text is too short.\nTry again:"
         )
         return
     
@@ -401,15 +468,22 @@ async def msg_edit_user(message: Message, state: FSMContext) -> None:
     # Escape markdown for display
     display_text = escape_markdown(new_user[:100])
     
-    # Show success with back button to prompt detail
+    # Get subject display name
+    subject_name = get_subject_display_name(prompt_name)
+    
+    # Show success with back button to EDIT OPTIONS (not detail)
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="<< Back to Edit Options",
+        callback_data=f"prompt_edit_{prompt_name}"
+    )
+    
     await message.answer(
-        f"✅ *Готово!*\n\n"
-        f"Обновлен: `{prompt_name}`\n"
-        f"Текст: {display_text}...",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="« Назад к промпту", callback_data=f"prompt_select_{prompt_name}")]]
-        ),
+        f"SAVED!\n\n"
+        f"Updated: {subject_name}\n"
+        f"Text: {display_text}...",
+        parse_mode=None,
+        reply_markup=builder.as_markup(),
     )
     await state.clear()
     logger.info(f"User {message.from_user.id} edited user prompt: {prompt_name}")
