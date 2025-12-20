@@ -6,7 +6,6 @@ Handles /homework command for checking student homework.
 import logging
 from typing import Optional
 from pathlib import Path
-import base64
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
@@ -107,7 +106,10 @@ async def select_subject(
         text=(
             f"{subject.emoji} <b>{subject.name}</b>\n\n"
             f"💬 {subject.description}\n\n"
-            f"📄 Отправь файл, фото или текст"
+            f"📄 Отправьте:\n"
+            f"• Текстовое сообщение с вашим решением\n"
+            f"• PDF или DOCX файл с заданием\n"
+            f"• Фото с подписью (опишите что на фото)"
         ),
         parse_mode="HTML",
         reply_markup=None
@@ -150,10 +152,10 @@ async def process_homework_file(
             await processing_msg.edit_text(
                 text=(
                     f"❌ Не удалось получить текст\n\n"
-                    f"Используйте:\n"
-                    f"• Прасные фото с четким текстом\n"
-                    f"• PDF, DOCX с текством\n"
-                    f"• Простые текстовые сообщения"
+                    f"💡 <b>Рекомендации:</b>\n"
+                    f"• Отправьте решение текстом\n"
+                    f"• Используйте PDF или DOCX файл\n"
+                    f"• К фото добавьте подпись с решением"
                 ),
                 parse_mode="HTML"
             )
@@ -210,83 +212,20 @@ async def _extract_content(message: Message) -> str:
     if message.text:
         return message.text
     
-    # Handle photo with OCR
+    # Handle photo - use caption as content
     if message.photo:
-        return await _extract_text_from_photo(message)
+        if message.caption and message.caption.strip():
+            logger.info(f"Using photo caption as content ({len(message.caption)} chars)")
+            return message.caption
+        else:
+            logger.warning("Photo sent without caption")
+            return ""  # Empty content will trigger error message
     
     # Handle document
     if message.document:
         return await _extract_text_from_document(message)
     
     raise ValueError("Неподдерживаемый тип содержимого")
-
-
-async def _extract_text_from_photo(message: Message) -> str:
-    """Extract text from photo using GPT-4V vision model (OCR).
-    
-    Uses the vision-capable model from config to extract text from images.
-    
-    Args:
-        message: Message with photo
-        
-    Returns:
-        Extracted text
-    """
-    try:
-        # Get the largest photo available
-        photo = message.photo[-1]
-        file_info = await message.bot.get_file(photo.file_id)
-        
-        # Download photo to memory
-        settings = get_settings()
-        temp_dir = Path(settings.TEMP_DIR)
-        temp_dir.mkdir(exist_ok=True)
-        
-        temp_file = temp_dir / f"photo_{photo.file_unique_id}.jpg"
-        await message.bot.download_file(file_info.file_path, temp_file)
-        
-        try:
-            # Read image
-            with open(temp_file, "rb") as f:
-                image_bytes = f.read()
-            
-            # Use vision model for OCR
-            # GPT-4V model can process images directly
-            settings = get_settings()
-            vision_llm = ReplicateClient(
-                api_token=settings.REPLICATE_API_TOKEN,
-                model=settings.REPLICATE_VISION_MODEL  # openai/gpt-4-vision
-            )
-            
-            # Create OCR prompt
-            ocr_prompt = (
-                "Опиши все текстовое содержимое в этом изображении.\n"
-                "Выдели все цифры, выражения, формулы.\n"
-                "Отвечай ТОЛЬКО на РУССКОМ языке!"
-            )
-            
-            # Call vision model for OCR
-            # Note: Direct image processing would require vision API support
-            # Fallback: encode as base64 and send as text with instruction
-            extracted_text = await vision_llm.analyze_document(
-                document_text="[ФОТО для OCR]",
-                user_prompt=ocr_prompt
-            )
-            
-            logger.info(f"Extracted {len(extracted_text)} chars from photo using {settings.REPLICATE_VISION_MODEL}")
-            return extracted_text
-        
-        finally:
-            # Clean up
-            if temp_file.exists():
-                temp_file.unlink()
-    
-    except Exception as e:
-        logger.warning(f"Failed to extract text from photo: {e}")
-        # Return caption if available as fallback
-        if message.caption:
-            return message.caption
-        return ""
 
 
 async def _extract_text_from_document(message: Message) -> str:
