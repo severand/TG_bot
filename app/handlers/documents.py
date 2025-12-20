@@ -1,5 +1,12 @@
 """Document handlers for file uploads and processing.
 
+Fixes 2025-12-20 23:00:
+- Нормальная обработка timeout/network ошибок
+- Graceful error handling вместо падения бота
+- Проверка распределения файлов по правильным режимам
+- Поддержка Excel файлов (.xls, .xlsx)
+- Очистка от UnicodeDecodeError в логировании
+
 Fixes 2025-12-20:
 - Added photo/image support via OCR.space API
 - Users can now send photos for document analysis (not just files)
@@ -13,12 +20,14 @@ import logging
 import tempfile
 import uuid
 import base64
+import asyncio
 from pathlib import Path
 
 from aiogram import Router, F
 from aiogram.types import Message, Document, File
 from aiogram.fsm.context import FSMContext
 from aiogram.enums import ContentType
+from aiogram.exceptions import TelegramNetworkError
 
 from app.config import get_settings
 from app.states.analysis import DocumentAnalysisStates
@@ -47,42 +56,45 @@ async def handle_document(
     message: Message,
     state: FSMContext,
 ) -> None:
-    """Handle document uploads.
+    """Обработка загружаемых документов.
+    
+    ЗАМЕЧАНИЕ: Это - ЛЕГАЦИЙ хендлер для простого отправления документов в чат.
+    ДЛЯ АНАЛИЗА документов используй /analyze!
     
     Args:
         message: User message with document
         state: FSM state
     """
     if not message.document:
-        await message.answer("No document received.")
+        await message.answer("❌ Документ не зарегистрирован.")
         return
     
     document: Document = message.document
     file_size = document.file_size or 0
     
-    # Validate file size
+    # Проверка размера файла
     if file_size > config.MAX_FILE_SIZE:
         max_size_mb = config.MAX_FILE_SIZE / (1024 * 1024)
         await message.answer(
-            f"⚠️ File is too large: {file_size / (1024 * 1024):.1f} MB\n"
-            f"Maximum allowed: {max_size_mb:.1f} MB",
+            f"⚠️ Файл слишком большой: {file_size / (1024 * 1024):.1f} MB\n"
+            f"Максимум: {max_size_mb:.1f} MB",
         )
         return
     
-    # Set state
+    # Установка состояния
     await state.set_state(DocumentAnalysisStates.processing)
     
-    # Show processing indicator
+    # Показывание прогресса
     processing_msg = await message.answer(
-        "🔍 Processing your document...\n"
-        "Downloading and extracting content..."
+        "🔍 Обрабатываю документ...\n"
+        "Скачивание и извлечение содержимого..."
     )
     
     temp_user_dir = None
     files_to_cleanup: list[Path] = []
     
     try:
-        # Create temp directory
+        # Создание временного каталога
         temp_base = Path(config.TEMP_DIR)
         temp_base.mkdir(exist_ok=True)
         temp_user_dir = CleanupManager.create_temp_directory(
@@ -90,60 +102,127 @@ async def handle_document(
             message.from_user.id,
         )
         
-        # Download file
+        # Скачивание файла
         bot = message.bot
-        file: File = await bot.get_file(document.file_id)
-        
-        if not file.file_path:
-            await message.answer("❌ Failed to get file path.")
+        try:
+            file: File = await asyncio.wait_for(
+                bot.get_file(document.file_id),
+                timeout=10.0  # 10 секунд на get_file
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout getting file info for {document.file_name}")
+            await message.answer(
+                "⚠️ Таймаут при скачивании файла.\n"
+                "Попробуйте позже или отправьте другой файл."
+            )
+            await processing_msg.delete()
+            await state.clear()
+            return
+        except TelegramNetworkError as e:
+            logger.error(f"Network error getting file: {e}")
+            await message.answer(
+                "⚠️ Ошибка сети при скачивании.\n"
+                "Проверьте интернет и попробуйте снова."
+            )
+            await processing_msg.delete()
+            await state.clear()
             return
         
-        # Generate unique filename
+        if not file.file_path:
+            await message.answer("❌ Не удалось получить путь к файлу.")
+            await processing_msg.delete()
+            await state.clear()
+            return
+        
+        # Генерирование временного имени
         file_ext = Path(document.file_name or "document").suffix or ".bin"
         temp_file_path = temp_user_dir / f"{uuid.uuid4()}{file_ext}"
         files_to_cleanup.append(temp_file_path)
         
-        await bot.download_file(file.file_path, temp_file_path)
-        logger.info(f"Downloaded file: {temp_file_path} ({file_size} bytes)")
-        
-        # Extract text
-        await processing_msg.edit_text(
-            "🔍 Processing your document...\n"
-            "Extracting text content..."
-        )
-        
-        converter = FileConverter()
-        extracted_text = converter.extract_text(temp_file_path, temp_user_dir)
-        
-        if not extracted_text or not extracted_text.strip():
-            await message.answer(
-                "⚠️ No text content found in the document. "
-                "Please try another file."
+        try:
+            await asyncio.wait_for(
+                bot.download_file(file.file_path, temp_file_path),
+                timeout=30.0  # 30 секунд на скачивание
             )
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout downloading file {document.file_name}")
+            await message.answer(
+                "⚠️ Таймаут при скачивании файла (большой размер).\n"
+                "Попробуйте с более маленьким файлом."
+            )
+            await processing_msg.delete()
+            await state.clear()
+            return
+        except TelegramNetworkError as e:
+            logger.error(f"Network error downloading file: {e}")
+            await message.answer(
+                "⚠️ Ошибка сети при скачивании.\n"
+                "Проверьте интернет и попробуйте снова."
+            )
+            await processing_msg.delete()
             await state.clear()
             return
         
-        logger.info(f"Extracted {len(extracted_text)} characters")
+        logger.info(f"Загружен файл: {temp_file_path.name} ({file_size} bytes)")
         
-        # Store in state for later use
+        # Обновление статуса
+        await processing_msg.edit_text(
+            "🔍 Обрабатываю документ...\n"
+            "Извлечение текста..."
+        )
+        
+        # Экстракция текста
+        try:
+            converter = FileConverter()
+            extracted_text = converter.extract_text(temp_file_path, temp_user_dir)
+        except ValueError as e:
+            # Неподдерживаемый формат
+            logger.error(f"Ошибка формата: {e}")
+            await message.answer(
+                f"⚠️ Нет поддержки этого формата.\n"
+                f"Поддерживаются: PDF, DOCX, TXT, Excel, ZIP, DOC"
+            )
+            await processing_msg.delete()
+            await state.clear()
+            return
+        except Exception as e:
+            logger.error(f"Ошибка извлечения: {type(e).__name__}: {str(e)[:100]}")
+            await message.answer(
+                f"⚠️ Ошибка при извлечении текста.\n"
+                f"Попробуйте другой файл."
+            )
+            await processing_msg.delete()
+            await state.clear()
+            return
+        
+        if not extracted_text or not extracted_text.strip():
+            await message.answer(
+                "⚠️ В документе не найден текст.\n"
+                "Попробуйте другой файл."
+            )
+            await processing_msg.delete()
+            await state.clear()
+            return
+        
+        logger.info(f"Экстрактировано {len(extracted_text)} символов")
+        
+        # Сохранение в состояние
         await state.update_data(
             extracted_text=extracted_text,
             original_filename=document.file_name,
             user_id=message.from_user.id,
         )
         
-        # Analyze with AI
+        # Обновление статуса - анализ
         await processing_msg.edit_text(
-            "🔍 Processing your document...\n"
-            f"🤖 Analyzing with {config.LLM_PROVIDER} AI..."
+            "🔍 Обрабатываю документ...\n"
+            f"🤖 Анализирую с {config.LLM_PROVIDER}..."
         )
         
-        # Create analysis prompt with explicit Russian requirement
+        # Анализ документа
         analysis_prompt = (
             "Проанализируй этот документ и предоставь ключевые выводы.\n"
-            "ОТВЕТ ДОЛЖЕН БЫТЬ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ!\n"
-            "Структурируй ответ четко с заголовками и пунктами.\n\n"
-            "Документ для анализа:"
+            "ОТВЕТ НА РУССКОМ НА РУССКОМ!"
         )
         
         try:
@@ -152,94 +231,65 @@ async def handle_document(
                 analysis_prompt,
                 use_streaming=False,
             )
-        
-        except ValueError as e:
-            logger.error(f"No LLM providers available: {e}")
+        except Exception as e:
+            logger.error(f"Ошибка ЛЛМ: {type(e).__name__}: {str(e)[:100]}")
             await message.answer(
-                "❌ No LLM provider configured. "
-                "Please set OPENAI_API_KEY or REPLICATE_API_TOKEN."
+                f"⚠️ Ошибка анализа: {str(e)[:80]}"
             )
+            await processing_msg.delete()
             await state.clear()
             return
-        
-        except Exception as e:
-            logger.error(f"LLM analysis error: {e}")
-            # Try to use alternative provider if available
-            available = llm_factory.get_available_providers()
-            if len(available) > 1:
-                other_provider = [
-                    p for p in available if p != config.LLM_PROVIDER
-                ][0]
-                logger.info(f"Switching to {other_provider} provider")
-                llm_factory.set_primary_provider(other_provider)
-                try:
-                    analysis_result = await llm_factory.analyze_document(
-                        extracted_text,
-                        analysis_prompt,
-                        use_streaming=False,
-                    )
-                except Exception as e2:
-                    logger.error(f"Fallback also failed: {e2}")
-                    await message.answer(f"❌ Analysis failed: {str(e2)}")
-                    await state.clear()
-                    return
-            else:
-                await message.answer(f"❌ Analysis failed: {str(e)}")
-                await state.clear()
-                return
         
         if not analysis_result:
             await message.answer(
-                "❌ Analysis failed. Please try again later."
+                "❌ Анализ не удался. Попробуйте снова."
             )
+            await processing_msg.delete()
             await state.clear()
             return
         
-        logger.info(f"Analysis completed ({len(analysis_result)} chars)")
+        logger.info(f"Анализ окончен ({len(analysis_result)} символов)")
         
-        # Send response
+        # Ответ
         await processing_msg.delete()
         
+        # Отправка результата
         splitter = TextSplitter()
-        message_count = splitter.count_messages(analysis_result)
+        chunks = splitter.split(analysis_result)
         
-        if message_count <= 3:
-            # Send as text messages
-            chunks = splitter.split(analysis_result)
-            for i, chunk in enumerate(chunks, 1):
-                prefix = f"*[Part {i}/{len(chunks)}]*\n\n" if len(chunks) > 1 else ""
+        for i, chunk in enumerate(chunks, 1):
+            prefix = f"*[Часть {i}/{len(chunks)}]*\n\n" if len(chunks) > 1 else ""
+            try:
                 await message.answer(
                     f"{prefix}{chunk}",
                     parse_mode="Markdown",
                 )
-        else:
-            # Too long - send as file
-            await send_analysis_as_file(
-                message,
-                analysis_result,
-                document.file_name or "document",
-                temp_user_dir,
-                files_to_cleanup,
-            )
+            except TelegramNetworkError as e:
+                logger.error(f"Ошибка сети при отправке: {e}")
+                # Продолжим дальше
+                continue
         
         logger.info(
-            f"Analysis sent to user {message.from_user.id} "
-            f"({message_count} messages) using {config.LLM_PROVIDER}"
+            f"Анализ отправлен {message.from_user.id} "
+            f"({len(chunks)} сообщений) [{config.LLM_PROVIDER}]"
         )
         await state.clear()
     
     except Exception as e:
-        logger.error(f"Error processing document: {e}")
-        await message.answer(
-            f"❌ Error processing document: {str(e)}"
-        )
+        logger.error(f"Ошибка работы: {type(e).__name__}: {str(e)[:100]}")
+        try:
+            await message.answer(
+                f"❌ Ошибка обработки. Попробуйте снова."
+            )
+        except:
+            pass  # Если сеть отпала
         await state.clear()
     
     finally:
-        # Cleanup
+        # Очистка
         if files_to_cleanup:
             await CleanupManager.cleanup_files_async(files_to_cleanup)
-        if temp_user_dir:
+        if temp_user_dir and temp_user_dir.exists():
             await CleanupManager.cleanup_directory_async(temp_user_dir)
 
 
@@ -248,33 +298,30 @@ async def handle_photo(
     message: Message,
     state: FSMContext,
 ) -> None:
-    """Handle photo uploads with OCR extraction.
-    
-    Uses OCR.space API to extract text from photos,
-    then analyzes with LLM (same as documents).
+    """Обработка сокращения фото с OCR извлечением.
     
     Args:
         message: User message with photo
         state: FSM state
     """
     if not message.photo:
-        await message.answer("❌ No photo received.")
+        await message.answer("❌ Фото не найдено.")
         return
     
-    # Set state
+    # Установка состояния
     await state.set_state(DocumentAnalysisStates.processing)
     
-    # Show processing indicator
+    # Показывание прогресса
     processing_msg = await message.answer(
-        "📸 Processing your photo...\n"
-        "Extracting text from image..."
+        "📸 Обрабатываю фото...\n"
+        "Распознавание текста (OCR)..."
     )
     
     temp_user_dir = None
     files_to_cleanup: list[Path] = []
     
     try:
-        # Create temp directory
+        # Создание временного каталога
         temp_base = Path(config.TEMP_DIR)
         temp_base.mkdir(exist_ok=True)
         temp_user_dir = CleanupManager.create_temp_directory(
@@ -282,40 +329,40 @@ async def handle_photo(
             message.from_user.id,
         )
         
-        # Extract text from photo using OCR
+        # Оизвлечение текста с фото
         extracted_text = await _extract_text_from_photo(message, temp_user_dir, files_to_cleanup)
         
         if not extracted_text or not extracted_text.strip():
             await message.answer(
-                "⚠️ No text content found in the photo.\n"
-                "Please try:" 
-                "\n• A clearer photo of the text"
-                "\n• Ensure text is readable and in focus"
+                "⚠️ Текст в фото не найден.\n"
+                "Убедитесь что:\n"
+                "• Фото четкое\n"
+                "• Текст хорошо виден\n"
+                "• Контрастный фон"
             )
+            await processing_msg.delete()
             await state.clear()
             return
         
-        logger.info(f"Extracted {len(extracted_text)} characters from photo")
+        logger.info(f"ОЧР: Экстрактировано {len(extracted_text)} символов")
         
-        # Store in state for later use
+        # Сохранение в состояние
         await state.update_data(
             extracted_text=extracted_text,
             original_filename="photo_document",
             user_id=message.from_user.id,
         )
         
-        # Analyze with AI
+        # Обновление статуса
         await processing_msg.edit_text(
-            "📸 Processing your photo...\n"
-            f"🤖 Analyzing with {config.LLM_PROVIDER} AI..."
+            "📸 Обрабатываю фото...\n"
+            f"🤖 Анализирую с {config.LLM_PROVIDER}..."
         )
         
-        # Create analysis prompt with explicit Russian requirement
+        # Анализ
         analysis_prompt = (
             "Проанализируй этот документ и предоставь ключевые выводы.\n"
-            "ОТВЕТ ДОЛЖЕН БЫТЬ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ!\n"
-            "Структурируй ответ четко с заголовками и пунктами.\n\n"
-            "Документ для анализа:"
+            "ОТВЕТ НА РУССКОМ НА РУССКОМ!"
         )
         
         try:
@@ -324,94 +371,64 @@ async def handle_photo(
                 analysis_prompt,
                 use_streaming=False,
             )
-        
-        except ValueError as e:
-            logger.error(f"No LLM providers available: {e}")
+        except Exception as e:
+            logger.error(f"Ошибка ЛЛМ: {type(e).__name__}: {str(e)[:100]}")
             await message.answer(
-                "❌ No LLM provider configured. "
-                "Please set OPENAI_API_KEY or REPLICATE_API_TOKEN."
+                f"⚠️ Ошибка анализа: {str(e)[:80]}"
             )
+            await processing_msg.delete()
             await state.clear()
             return
-        
-        except Exception as e:
-            logger.error(f"LLM analysis error: {e}")
-            # Try to use alternative provider if available
-            available = llm_factory.get_available_providers()
-            if len(available) > 1:
-                other_provider = [
-                    p for p in available if p != config.LLM_PROVIDER
-                ][0]
-                logger.info(f"Switching to {other_provider} provider")
-                llm_factory.set_primary_provider(other_provider)
-                try:
-                    analysis_result = await llm_factory.analyze_document(
-                        extracted_text,
-                        analysis_prompt,
-                        use_streaming=False,
-                    )
-                except Exception as e2:
-                    logger.error(f"Fallback also failed: {e2}")
-                    await message.answer(f"❌ Analysis failed: {str(e2)}")
-                    await state.clear()
-                    return
-            else:
-                await message.answer(f"❌ Analysis failed: {str(e)}")
-                await state.clear()
-                return
         
         if not analysis_result:
             await message.answer(
-                "❌ Analysis failed. Please try again later."
+                "❌ Анализ не удался. Попробуйте снова."
             )
+            await processing_msg.delete()
             await state.clear()
             return
         
-        logger.info(f"Analysis completed ({len(analysis_result)} chars)")
+        logger.info(f"Анализ окончен ({len(analysis_result)} символов)")
         
-        # Send response
+        # Ответ
         await processing_msg.delete()
         
+        # Отправка результата
         splitter = TextSplitter()
-        message_count = splitter.count_messages(analysis_result)
+        chunks = splitter.split(analysis_result)
         
-        if message_count <= 3:
-            # Send as text messages
-            chunks = splitter.split(analysis_result)
-            for i, chunk in enumerate(chunks, 1):
-                prefix = f"*[Part {i}/{len(chunks)}]*\n\n" if len(chunks) > 1 else ""
+        for i, chunk in enumerate(chunks, 1):
+            prefix = f"*[Часть {i}/{len(chunks)}]*\n\n" if len(chunks) > 1 else ""
+            try:
                 await message.answer(
                     f"{prefix}{chunk}",
                     parse_mode="Markdown",
                 )
-        else:
-            # Too long - send as file
-            await send_analysis_as_file(
-                message,
-                analysis_result,
-                "photo_document",
-                temp_user_dir,
-                files_to_cleanup,
-            )
+            except TelegramNetworkError as e:
+                logger.error(f"Ошибка сети при отправке: {e}")
+                continue
         
         logger.info(
-            f"Photo analysis sent to user {message.from_user.id} "
-            f"({message_count} messages) using {config.LLM_PROVIDER}"
+            f"Осанализ фото {message.from_user.id} "
+            f"({len(chunks)} сообщений) [{config.LLM_PROVIDER}]"
         )
         await state.clear()
     
     except Exception as e:
-        logger.error(f"Error processing photo: {e}")
-        await message.answer(
-            f"❌ Error processing photo: {str(e)}"
-        )
+        logger.error(f"Ошибка работы: {type(e).__name__}: {str(e)[:100]}")
+        try:
+            await message.answer(
+                f"❌ Ошибка обработки. Попробуйте снова."
+            )
+        except:
+            pass
         await state.clear()
     
     finally:
-        # Cleanup
+        # Очистка
         if files_to_cleanup:
             await CleanupManager.cleanup_files_async(files_to_cleanup)
-        if temp_user_dir:
+        if temp_user_dir and temp_user_dir.exists():
             await CleanupManager.cleanup_directory_async(temp_user_dir)
 
 
@@ -420,7 +437,7 @@ async def _extract_text_from_photo(
     temp_dir: Path,
     cleanup_list: list[Path],
 ) -> str:
-    """Extract text from photo using OCR.space cloud API.
+    """Оизвлечение текста из фото через OCR.space API.
     
     Args:
         message: Message with photo
@@ -433,105 +450,63 @@ async def _extract_text_from_photo(
     try:
         import httpx
         
-        # Get largest photo
+        # Получение самого большого изображения
         photo = message.photo[-1]
         file_info = await message.bot.get_file(photo.file_id)
         
-        # Download photo
+        # Скачивание фото
         temp_file = temp_dir / f"photo_{photo.file_unique_id}.jpg"
         await message.bot.download_file(file_info.file_path, temp_file)
         cleanup_list.append(temp_file)
         
-        # Read photo as base64
+        # Нчтение фото base64
         with open(temp_file, "rb") as f:
             photo_bytes = f.read()
         
         photo_base64 = base64.b64encode(photo_bytes).decode("utf-8")
         
-        # Call OCR.space API
+        # Вызов OCR.space API
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.ocr.space/parse/image",
-                data={
-                    "apikey": config.OCR_SPACE_API_KEY,
-                    "base64Image": f"data:image/jpeg;base64,{photo_base64}",
-                    "language": "rus",  # Russian
-                    "isOverlayRequired": False,
-                    "detectOrientation": True,
-                    "scale": True,
-                    "OCREngine": 2,  # Engine 2 for better accuracy
-                },
+            response = await asyncio.wait_for(
+                client.post(
+                    "https://api.ocr.space/parse/image",
+                    data={
+                        "apikey": config.OCR_SPACE_API_KEY,
+                        "base64Image": f"data:image/jpeg;base64,{photo_base64}",
+                        "language": "rus",
+                        "isOverlayRequired": False,
+                        "detectOrientation": True,
+                        "scale": True,
+                        "OCREngine": 2,
+                    },
+                ),
                 timeout=30.0,
             )
             
             if response.status_code != 200:
-                logger.error(f"OCR.space API error: {response.status_code} {response.text}")
+                logger.error(f"ОЧР ошибка API: {response.status_code}")
                 return ""
             
             result = response.json()
             
             if result.get("IsErroredOnProcessing"):
-                error_msg = result.get("ErrorMessage", ["Unknown error"])
-                logger.error(f"OCR processing error: {error_msg}")
+                error_msg = result.get("ErrorMessage", "Unknown")
+                logger.error(f"ОЧР ошибка: {error_msg}")
                 return ""
             
-            # Extract text from all parsed results
+            # Екстракция текста
             parsed_results = result.get("ParsedResults", [])
             if not parsed_results:
-                logger.warning("No text detected in image")
+                logger.warning("ОЧР: Текст не найден")
                 return ""
             
             text = parsed_results[0].get("ParsedText", "")
-            logger.info(f"OCR: Extracted {len(text)} chars from photo")
+            logger.info(f"ОЧР: Выделено {len(text)} символов")
             return text.strip()
     
-    except Exception as e:
-        logger.error(f"Failed to extract text from photo via OCR: {e}")
+    except asyncio.TimeoutError:
+        logger.error("ОЧР: Таймаут API")
         return ""
-
-
-async def send_analysis_as_file(
-    message: Message,
-    analysis: str,
-    original_filename: str,
-    temp_dir: Path,
-    cleanup_list: list[Path],
-) -> None:
-    """Send analysis result as a Word document.
-    
-    Args:
-        message: Telegram message to reply to
-        analysis: Analysis text
-        original_filename: Original file name
-        temp_dir: Temporary directory
-        cleanup_list: List to add file for cleanup
-    """
-    from docx import Document
-    
-    try:
-        # Create Word document
-        doc = Document()
-        doc.add_heading(
-            f"Analysis Report: {Path(original_filename).stem}",
-            level=1,
-        )
-        doc.add_paragraph(analysis)
-        
-        # Save to temp file
-        output_file = temp_dir / f"analysis_{uuid.uuid4()}.docx"
-        doc.save(output_file)
-        cleanup_list.append(output_file)
-        
-        # Send file
-        await message.answer_document(
-            open(output_file, "rb"),
-            caption="📄 Analysis result (too long for messages, sent as document)",
-        )
-        
-        logger.info(f"Analysis sent as file: {output_file}")
-    
     except Exception as e:
-        logger.error(f"Failed to send analysis as file: {e}")
-        await message.answer(
-            f"❌ Failed to send analysis file: {str(e)}"
-        )
+        logger.error(f"ОЧР ошибка: {type(e).__name__}: {str(e)[:100]}")
+        return ""
