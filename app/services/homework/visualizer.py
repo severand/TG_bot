@@ -52,7 +52,7 @@ class ResultVisualizer:
         lines.append(f"   Оценка: {result.grade} из 5\n")
         
         # Points section
-        lines.append(f"💯 Токи: {result.points}/{result.max_points} ({percentage:.0f}%)")
+        lines.append(f"💯 Баллы: {result.points}/{result.max_points} ({percentage:.0f}%)")
         
         # Progress bar
         bar_length = 20
@@ -85,7 +85,7 @@ class ResultVisualizer:
         
         # Advice
         if result.advice:
-            lines.append("💭 Совет для иловравления:")
+            lines.append("💭 Совет для улучшения:")
             lines.append(f"   {result.advice}\n")
         
         lines.append("="*50)
