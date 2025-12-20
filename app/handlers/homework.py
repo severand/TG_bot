@@ -17,7 +17,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from app.states.homework import HomeworkStates
 from app.services.homework import HomeworkChecker, SubjectCheckers, ResultVisualizer
 from app.services.llm.replicate_client import ReplicateClient
-from app.services.file_processing import PDFParser, DocxParser
+from app.services.file_processing import PDFParser, DOCXParser
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -217,13 +217,13 @@ async def _extract_content(message: Message) -> str:
             # Process based on file type
             if message.document.mime_type == "application/pdf":
                 pdf_parser = PDFParser()
-                content = pdf_parser.parse(str(file_path))
+                content = pdf_parser.extract_text(file_path)
             elif message.document.mime_type in [
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 "application/msword"
             ]:
-                docx_parser = DocxParser()
-                content = docx_parser.parse(str(file_path))
+                docx_parser = DOCXParser()
+                content = docx_parser.extract_text(file_path)
             elif message.document.mime_type == "text/plain":
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
