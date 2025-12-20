@@ -1,5 +1,10 @@
 """Conversation mode handlers for interactive document analysis.
 
+Fixes 2025-12-20 22:15:
+- Поддерживает название документа в заголовке результата
+- Оригинальное имя файла мострится в каждом сообщении
+- При получении голоса называется 'photo_document'
+
 Fixes 2025-12-20 21:05:
 - Убрано навязчивое сообщение "Хотите отредактировать промпт?" после анализа
 - Теперь выводится только результат анализа без дополнительных напоминаний
@@ -182,7 +187,7 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
         f"_{prompt.description}_\n\n"
         f"📂 *Шаг 2️⃣ из 2:* Загрузите документ\n\n"
         f"📄 *Поддерживаемые форматы:*\n"
-        f"• PDF\n• DOCX\n• TXT\n• ZIP\n• 📸 Фото документа\n\n"
+        f"• PDF, DOCX, TXT\n• Excel (.xlsx, .xls)\n• ZIP, DOC\n• 📸 Фото\n\n"
         f"✏️ *Редактировать этот промпт?*\n"
         f"`/prompts` → Документы → `{prompt_name}` → Редактировать\n\n"
         f"📁 Готово? Отправьте документ!"
@@ -312,7 +317,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             await status_msg.delete()
             return
         
-        # Save to state
+        # Save to state - оригинальное имя документа
         await state.update_data(
             document_text=extracted_text,
             document_name=document.file_name or "document",
@@ -389,7 +394,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
             await status_msg.delete()
             return
         
-        # Save to state
+        # Save to state - оригинальное имя документа
         await state.update_data(
             document_text=extracted_text,
             document_name="photo_document",
@@ -436,9 +441,11 @@ async def _perform_analysis(
     
     IMPORTANT: After analysis completes, returns user to chat mode (clears state).
     This ensures they don't stay in analysis mode.
+    
+    UPDATED: НАЗВАНИЕ ДОКУМЕНТА В НАЧАЛО КАЖДОГО сообщения
     """
     document_text = data.get("document_text")
-    document_name = data.get("document_name")
+    document_name = data.get("document_name", "document")
     selected_prompt_name = data.get("selected_prompt_name", "default")
     
     if not document_text:
@@ -491,21 +498,28 @@ async def _perform_analysis(
         splitter = TextSplitter(max_length=4000)
         chunks = splitter.split(analysis_result)
         
+        # ОТОБРАЖЕНИЕ: добавляем имя документа на наЧАЛО
         if len(chunks) == 1:
+            # Одно сообщение
+            header = f"📄 *Документ:* `{document_name}`\n\n"
             await message.answer(
-                analysis_result,
+                f"{header}{analysis_result}",
                 parse_mode="Markdown",
             )
         else:
+            # Несколько сообщений - заголовок только в первом
             for i, chunk in enumerate(chunks, 1):
-                prefix = f"*[Часть {i}/{len(chunks)}]*\n\n"
+                if i == 1:
+                    # Первое сообщение с жданием и номером
+                    prefix = f"📄 *Документ:* `{document_name}`\n\n*[Часть {i}/{len(chunks)}]*\n\n"
+                else:
+                    # Остальные сообщения
+                    prefix = f"*[Часть {i}/{len(chunks)}]*\n\n"
+                
                 await message.answer(
                     f"{prefix}{chunk}",
                     parse_mode="Markdown",
                 )
-        
-        # УБРАНО: дополнительное навязчивое сообщение про редактирование промпта
-        # Пользователь получает только результат анализа
         
         # Delete progress message after results sent
         if status_msg:
