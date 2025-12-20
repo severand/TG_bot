@@ -1,443 +1,662 @@
-# 🤖 Promt Bot - Intelligent Document Analysis Telegram Bot
+# 🎯 Uh Bot - Intelligent Telegram Document Analysis Bot
 
-> Мощный Telegram-бот для анализа документов с использованием GPT-4o-mini и кастомных промптов
-
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://core.telegram.org/bots)
-[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o--mini-green.svg)](https://openai.com/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+**Version:** 1.0.0 | **License:** MIT | **Python:** 3.11+
 
 ---
 
-## ✨ Основные возможности
+## 📋 Оглавление
 
-### 💬 Три режима работы
-
-#### 1. **Режим диалога** (`/chat`)
-- Обычное общение с AI помощником
-- Ответы на любые вопросы
-- Визуальный индикатор "🤔 Думаю над вопросом..."
-- Поддержка длинных ответов (автоматическое разбиение)
-- **Активен по умолчанию после /start**
-
-#### 2. **Режим анализа документов** (`/analyze`)
-- Загрузка и анализ документов:
-  - 📄 PDF файлы
-  - 📝 Microsoft Word (DOCX)
-  - 📋 Текстовые файлы (TXT)
-  - 🗜️ ZIP архивы (с множеством файлов)
-- Интеллектуальный анализ с использованием кастомных промптов
-- Извлечение ключевой информации
-- Анализ рисков и проблем
-- Автоматическая генерация резюме
-
-#### 3. **Управление промптами** (`/prompts`)
-- 5 встроенных профессиональных промптов:
-  - 📄 **Базовый анализ** - универсальный анализ документов
-  - 📝 **Краткое резюме** - создание сжатых резюме
-  - 🔍 **Извлечение данных** - поиск сущностей (имена, даты, суммы)
-  - ⚠️ **Анализ рисков** - выявление проблем и рисков
-  - ⚖️ **Юридическая проверка** - анализ договоров и соглашений
-- Создание собственных промптов
-- Редактирование промптов (системный + пользовательский)
-- Установка промпта по умолчанию
-- Удаление пользовательских промптов
+1. [Описание проекта](#описание-проекта)
+2. [Основные возможности](#основные-возможности)
+3. [Технический стек](#технический-стек)
+4. [Архитектура](#архитектура)
+5. [Установка и запуск](#установка-и-запуск)
+6. [Использование](#использование)
+7. [Структура проекта](#структура-проекта)
+8. [API документация](#api-документация)
+9. [Конфигурация](#конфигурация)
+10. [Разработка](#разработка)
+11. [Тестирование](#тестирование)
 
 ---
 
-## 🚀 Быстрый старт
+## Описание проекта
 
-### Требования
-- Python 3.10+
-- Telegram Bot Token ([получить от @BotFather](https://t.me/botfather))
-- Replicate API Token ([получить на replicate.com](https://replicate.com))
+**Uh Bot** — это интеллектуальный Telegram-бот, разработанный для анализа и обработки документов с использованием искусственного интеллекта. Бот предоставляет комплексное решение для работы с документами, ведения интеллектуального диалога, анализа домашних заданий и управления кастомизируемыми промптами.
 
-### Установка
+**Целевая аудитория:**
+- Студенты (проверка домашних заданий)
+- Профессионалы (анализ документов)
+- Преподаватели (проверка работ)
+- Бизнес-пользователи (обработка информации)
 
-```bash
-# 1. Клонируем репозиторий
-git clone https://github.com/severand/TG_bot.git
-cd TG_bot
+---
 
-# 2. Создаём виртуальное окружение
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+## Основные возможности
 
-# 3. Устанавливаем зависимости
-pip install -e .
+### 🔍 Анализ документов
+- **Базовый анализ**: Резюме, ключевые моменты, важные детали
+- **Краткое резюме**: Сжатое изложение основной информации
+- **Извлечение данных**: Люди, организации, даты, суммы, термины
+- **Анализ рисков**: Выявление потенциальных проблем и зон внимания
+- **Юридическая проверка**: Анализ договоров и юридических последствий
 
-# 4. Настраиваем переменные окружения
-cp .env.example .env
-nano .env  # Или открой в любом редакторе
+**Поддерживаемые форматы:**
+- PDF документы
+- Word документы (DOCX)
+- Текстовые файлы (TXT)
+- Изображения (автоматическое извлечение текста через OCR)
+
+### 💬 Интеллектуальный диалог
+- Общение на русском языке
+- Объяснение сложных концепций
+- Контекстное понимание
+- Поддержка многошаговых диалогов
+
+### 📚 Проверка домашних заданий
+- **По 8 предметам:**
+  - 🔢 Математика
+  - 🔤 Русский язык
+  - 🇬🇧 Английский язык
+  - ⚡ Физика
+  - 🧪 Химия
+  - 💻 Информатика
+  - 🌍 География
+  - 📖 Литература
+
+- Справедливая проверка
+- Выявление ошибок
+- Конструктивные предложения
+- Мотивирующий тон
+
+### ⚙️ Управление промптами
+- **3 категории промптов:**
+  - 📄 Документы (5 промптов)
+  - 💬 Диалог (1 промпт)
+  - 📖 Домашка (8 промптов)
+
+- Редактирование системных промптов
+- Кастомизация под пользователя
+- Сохранение в локальную базу
+- Интуитивный интерфейс управления
+
+---
+
+## Технический стек
+
+### Backend
+| Компонент | Версия | Назначение |
+|-----------|--------|----------|
+| **Python** | 3.11+ | Основной язык |
+| **aiogram** | 3.0.0+ | Telegram Bot API framework |
+| **Replicate** | 0.15.0+ | LLM API (Claude, Llama, etc) |
+| **OpenAI** | 1.3.0+ | Chat API (alternative) |
+| **python-docx** | 1.0.0+ | Word документы |
+| **pypdf** | 4.0.0+ | PDF обработка |
+| **Pydantic** | 2.0.0+ | Валидация данных |
+| **python-dotenv** | 1.0.0+ | Управление переменными окружения |
+
+### Infrastructure
+- **Polling**: Базовое опрашивание API Telegram
+- **File Processing**: Асинхронная обработка файлов (aiofiles)
+- **Storage**: Локальная файловая система (./data/prompts)
+- **OCR**: OCR.space API (облачный сервис)
+
+### Development Tools
+- **pytest**: Unit и Integration тестирование
+- **black**: Code formatting
+- **ruff**: Linting
+- **mypy**: Type checking
+- **structlog**: Structured logging
+
+---
+
+## Архитектура
+
+### 📁 Слоистая архитектура
+
+```
+┌─────────────────────────────────────────────┐
+│        Telegram Bot Interface (aiogram)     │
+├─────────────────────────────────────────────┤
+│           Handlers Layer (app/handlers)     │
+│  ├─ common.py (базовые команды)             │
+│  ├─ documents.py (анализ документов)        │
+│  ├─ conversation.py (/analyze команда)      │
+│  ├─ chat.py (диалог)                        │
+│  ├─ homework.py (проверка домашки)          │
+│  └─ prompts.py (управление промптами)       │
+├─────────────────────────────────────────────┤
+│          Services Layer (app/services)      │
+│  ├─ llm/ (LLM интеграция)                    │
+│  │  ├─ replicate_client.py                  │
+│  │  └─ openai_client.py                     │
+│  ├─ file_processing/ (обработка файлов)     │
+│  │  ├─ ocr_service.py                       │
+│  │  ├─ pdf_parser.py                        │
+│  │  └─ docx_parser.py                       │
+│  ├─ prompts/ (управление промптами)         │
+│  │  └─ prompt_manager.py                    │
+│  ├─ documents/ (анализ документов)          │
+│  │  └─ document_analyzer.py                 │
+│  ├─ homework/ (проверка домашки)            │
+│  │  ├─ homework_checker.py                  │
+│  │  └─ subject_checkers.py                  │
+│  └─ parsing/ (обработка результатов)        │
+│     └─ response_formatter.py                │
+├─────────────────────────────────────────────┤
+│        State Management (app/states)        │
+│  ├─ documents.py (FSM для документов)       │
+│  ├─ conversation.py (FSM для диалога)       │
+│  ├─ chat.py (FSM для чата)                  │
+│  ├─ homework.py (FSM для домашки)           │
+│  └─ prompts.py (FSM для промптов)           │
+├─────────────────────────────────────────────┤
+│        Configuration Layer (app/config)     │
+│  └─ settings.py (управление конфигурацией) │
+├─────────────────────────────────────────────┤
+│        Storage Layer (./data/prompts)       │
+│  └─ JSON файлы кастомных промптов           │
+└─────────────────────────────────────────────┘
 ```
 
-### Настройка `.env`
+### 🔄 Поток данных
+
+1. **User Input** → Telegram Handler
+2. **File Download** → Temp Directory
+3. **Content Extraction** → PDF/DOCX/OCR Parser
+4. **Prompt Selection** → PromptManager
+5. **LLM Processing** → Replicate/OpenAI API
+6. **Response Parsing** → ResponseFormatter
+7. **Output** → User (Telegram)
+
+---
+
+## Установка и запуск
+
+### Требования
+- Python 3.11+
+- pip или uv
+- Telegram Bot Token (от BotFather)
+- API ключи (Replicate, OpenAI)
+
+### Шаг 1: Клонирование репозитория
+
+```bash
+git clone https://github.com/severand/TG_bot.git
+cd TG_bot
+```
+
+### Шаг 2: Создание виртуального окружения
+
+```bash
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
+```
+
+### Шаг 3: Установка зависимостей
+
+```bash
+pip install -e .
+# или с dev зависимостями
+pip install -e ".[dev]"
+```
+
+### Шаг 4: Конфигурация
+
+Создайте `.env` файл на основе `.env.example`:
+
+```bash
+cp .env.example .env
+```
+
+Отредактируйте `.env`:
 
 ```env
-# Telegram Bot Token (обязательно)
-TG_BOT_TOKEN=your_telegram_bot_token_here
+# Telegram
+TG_BOT_TOKEN=your_bot_token_from_botfather
 
-# Replicate Configuration (обязательно)
-REPLICATE_API_TOKEN=your_replicate_api_token_here
-REPLICATE_MODEL=openai/gpt-4o-mini
+# LLM API
+REPLICATE_API_TOKEN=your_replicate_token
+REPLICATE_MODEL=meta/llama-2-70b-chat:2796ee1dca3f3236cbba7651544d4c40fed8150cf29fc2e9318c7bfa5f28d605
 
-# Primary LLM Provider
-LLM_PROVIDER=replicate
+# Alternative: OpenAI
+OPENAI_API_KEY=your_openai_key
+OPENAI_MODEL=gpt-4-turbo-preview
 
-# Optional: OpenAI Configuration (резервный вариант)
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-4o
-
-# Logging
-LOG_LEVEL=INFO
-
-# File Limits
-MAX_FILE_SIZE=20971520        # 20 MB
-MAX_ARCHIVE_SIZE=104857600    # 100 MB
+# OCR
+OCR_SPACE_API_KEY=K87899142591
 
 # Directories
 TEMP_DIR=./temp
 ```
 
-### Запуск
+### Шаг 5: Запуск
 
 ```bash
 python main.py
 ```
 
-Бот начнёт работу и будет готов принимать команды!
+---
+
+## Использование
+
+### Telegram команды
+
+#### 📄 Анализ документов
+
+```
+/analyze - Начать анализ документа
+```
+
+**Процесс:**
+1. `/analyze` → Выбрать тип анализа
+2. Отправить документ (PDF/DOCX/изображение/текст)
+3. Получить результат
+
+**Типы анализа:**
+- 📋 Базовый анализ
+- 📝 Краткое резюме
+- 🔍 Извлечение данных
+- ⚠️ Анализ рисков
+- ⚖️ Юридическая проверка
+
+#### 💬 Диалог
+
+```
+/chat - Начать общение
+```
+
+**Процесс:**
+1. `/chat` → Активирован режим диалога
+2. Отправлять вопросы
+3. Получать ответы
+
+#### 📚 Проверка домашки
+
+```
+/homework - Проверить домашнее задание
+```
+
+**Процесс:**
+1. `/homework` → Выбрать предмет
+2. Отправить домашку (текст/фото/документ)
+3. Получить проверку с ошибками и рекомендациями
+
+#### ⚙️ Управление промптами
+
+```
+/prompts - Управлять промптами
+```
+
+**Категории:**
+- 📄 Документы (5 промптов)
+- 💬 Диалог (1 промпт)
+- 📖 Домашка (8 промптов по предметам)
+
+**Операции:**
+- Просмотр промптов
+- Редактирование системного промпта
+- Редактирование шаблона
+- Сохранение изменений
+
+#### 📖 Справка
+
+```
+/help - Получить справку
+/start - Запустить бота
+```
 
 ---
 
-## 📱 Использование
+## Структура проекта
 
-### Базовые команды
-
-```
-/start   - Запустить бота (активирует режим диалога)
-/chat    - Режим обычного общения с AI
-/analyze - Режим анализа документов
-/prompts - Управление промптами
-/help    - Показать справку
-/cancel  - Отменить текущую операцию
-```
-
-### Примеры использования
-
-#### 🗣️ Обычный диалог
-```
-1. /start или /chat
-2. Напиши: "Объясни что такое blockchain"
-3. Получи подробный ответ
-```
-
-#### 📄 Анализ документа
-```
-1. /analyze
-2. Загрузи PDF/DOCX/TXT файл
-3. Бот автоматически проанализирует
-4. Получи структурированный анализ
-```
-
-#### 🎯 Использование кастомных промптов
-```
-1. /prompts
-2. "Просмотреть промпты"
-3. Выбери "⚖️ Юридическая проверка"
-4. "✅ Использовать по умолчанию"
-5. Теперь все документы анализируются как юридические!
-```
-
-#### ✏️ Создание своего промпта
-```
-1. /prompts
-2. "➕ Создать новый"
-3. Введи имя: "financial_analysis"
-4. Введи системный промпт: "Ты финансовый аналитик..."
-5. Введи промпт пользователя: "Проанализируй финансовые показатели..."
-6. Готово! Промпт создан
-```
-
----
-
-## 🏗️ Архитектура проекта
+### 📂 Основные директории
 
 ```
 TG_bot/
-├── app/
-│   ├── config.py                    # Конфигурация
-│   ├── bot.py                       # Инициализация бота
-│   ├── localization.py              # Локализация (русский)
-│   │
-│   ├── handlers/                    # Обработчики команд
-│   │   ├── common.py               # /start, /help, /cancel
-│   │   ├── chat.py                 # Режим диалога
-│   │   ├── conversation.py         # /analyze режим
-│   │   ├── prompts.py              # Управление промптами
-│   │   └── documents.py            # Загрузка файлов
-│   │
-│   ├── states/                      # FSM состояния
-│   │   ├── analysis.py
-│   │   ├── chat.py
-│   │   └── prompts.py
-│   │
-│   ├── services/                    # Бизнес-логика
-│   │   ├── file_processing/
-│   │   │   ├── pdf_parser.py       # Парсинг PDF
-│   │   │   ├── docx_parser.py      # Парсинг DOCX
-│   │   │   ├── txt_parser.py       # Парсинг TXT
-│   │   │   ├── zip_handler.py      # Обработка ZIP
-│   │   │   └── converter.py        # Конвертация в DOCX
-│   │   │
-│   │   ├── llm/                     # AI интеграция
-│   │   │   ├── llm_factory.py      # Фабрика LLM клиентов
-│   │   │   ├── openai_client.py    # OpenAI клиент
-│   │   │   └── replicate_client.py # Replicate клиент
-│   │   │
-│   │   └── prompts/                 # Система промптов
-│   │       └── prompt_manager.py   # Управление промптами
-│   │
-│   ├── utils/                       # Утилиты
-│   │   ├── text_splitter.py        # Разбиение текста
-│   │   └── cleanup.py              # Очистка файлов
-│   │
-│   └── filters/                     # Кастомные фильтры
-│
-├── data/                            # Данные
-│   └── prompts/                    # Пользовательские промпты
-│
-├── temp/                            # Временные файлы
-│
-├── tests/                           # Тесты
-│
-├── main.py                          # Точка входа
-├── pyproject.toml                   # Зависимости
-├── .env.example                     # Пример конфигурации
-└── README.md                        # Эта документация
+├── app/                          # Основное приложение
+│   ├── __init__.py
+│   ├── bot.py                   # Инициализация бота
+│   ├── config.py                # Конфигурация
+│   ├── handlers/                # Обработчики команд
+│   │   ├── __init__.py
+│   │   ├── common.py            # /start, /help
+│   │   ├── documents.py         # Анализ документов
+│   │   ├── conversation.py      # /analyze команда
+│   │   ├── chat.py              # /chat диалог
+│   │   ├── homework.py          # /homework проверка
+│   │   └── prompts.py           # /prompts управление
+│   ├── services/                # Бизнес-логика
+│   │   ├── __init__.py
+│   │   ├── llm/                 # LLM интеграция
+│   │   │   ├── replicate_client.py
+│   │   │   └── openai_client.py
+│   │   ├── file_processing/     # Обработка файлов
+│   │   │   ├── pdf_parser.py
+│   │   │   ├── docx_parser.py
+│   │   │   └── ocr_service.py
+│   │   ├── prompts/             # Управление промптами
+│   │   │   └── prompt_manager.py
+│   │   ├── documents/           # Анализ документов
+│   │   │   └── document_analyzer.py
+│   │   ├── homework/            # Проверка домашки
+│   │   │   ├── homework_checker.py
+│   │   │   └── subject_checkers.py
+│   │   └── parsing/             # Обработка результатов
+│   │       └── response_formatter.py
+│   └── states/                  # FSM состояния
+│       ├── __init__.py
+│       ├── documents.py
+│       ├── conversation.py
+│       ├── chat.py
+│       ├── homework.py
+│       └── prompts.py
+├── data/                        # Пользовательские данные
+│   └── prompts/                 # Кастомные промпты (JSON)
+├── docs/                        # Документация
+│   ├── API.md
+│   ├── ARCHITECTURE.md
+│   └── DEPLOYMENT.md
+├── examples/                    # Примеры использования
+│   ├── prompt_examples.md
+│   └── usage_scenarios.md
+├── tests/                       # Тестирование
+│   ├── test_documents.py
+│   ├── test_homework.py
+│   ├── test_prompts.py
+│   └── conftest.py
+├── temp/                        # Временные файлы
+├── main.py                      # Entry point
+├── requirements.txt             # Зависимости
+├── pyproject.toml              # Конфигурация проекта
+├── README.md                   # Этот файл
+└── .env.example                # Шаблон переменных окружения
 ```
 
 ---
 
-## 💰 Стоимость и производительность
+## API документация
 
-### Модель: GPT-4o-mini (через Replicate)
+### PromptManager
 
-| Параметр | Значение |
-|----------|----------|
-| **Цена вход** | $0.15 / 1M токенов |
-| **Цена выход** | $0.60 / 1M токенов |
-| **Скорость** | ~2 секунды на запрос |
-| **Экономия vs GPT-4o** | **94%** 💰 |
+Менеджер для управления промптами:
 
-### Производительность
+```python
+from app.services.prompts.prompt_manager import PromptManager
 
-- ⚡ Cold start: < 5 секунд
-- 📄 Обработка PDF: 5-15 секунд
-- 🤖 AI анализ: 2-10 секунд
-- 📊 Общее время: < 30 секунд
+# Инициализация
+pm = PromptManager()
 
-### Пример расчёта стоимости
+# Получить промпт
+prompt = pm.get_prompt(user_id, "math_homework")
 
-**Анализ документа (10k токенов входных + 1k токенов выходных):**
-- Вход: 10,000 × $0.15 / 1M = $0.0015
-- Выход: 1,000 × $0.60 / 1M = $0.0006
-- **Итого: $0.0021** (меньше цента!)
+# Получить все промпты категории
+prompts = pm.get_prompt_by_category(user_id, "homework")
+
+# Обновить промпт
+pm.update_prompt(
+    user_id=123,
+    prompt_name="math_homework",
+    system_prompt="Новый системный текст"
+)
+
+# Загрузить из файла
+pm.load_user_prompts(user_id)
+```
+
+### DocumentAnalyzer
+
+Анализ документов:
+
+```python
+from app.services.documents.document_analyzer import DocumentAnalyzer
+
+analyzer = DocumentAnalyzer(llm_client)
+result = await analyzer.analyze(
+    content="Текст документа",
+    analysis_type="risk_analysis",
+    system_prompt="..."
+)
+```
+
+### HomeworkChecker
+
+Проверка домашки:
+
+```python
+from app.services.homework.homework_checker import HomeworkChecker
+
+checker = HomeworkChecker(llm_client)
+result = await checker.check_homework(
+    content="Решение задачи",
+    subject="math",
+    system_prompt="..."
+)
+```
 
 ---
 
-## 🔒 Безопасность
+## Конфигурация
 
-### Реализованные меры защиты
+### Переменные окружения
 
-✅ **Защита от Zip Bomb**
-- Проверка коэффициента сжатия
-- Лимит на размер распакованных файлов
-- Детектирование подозрительных архивов
+| Переменная | Описание | Обязательна |
+|-----------|---------|----------|
+| `TG_BOT_TOKEN` | Токен Telegram бота | ✅ Да |
+| `REPLICATE_API_TOKEN` | API ключ Replicate | ❌ Опционально |
+| `REPLICATE_MODEL` | Модель Replicate | ❌ Опционально |
+| `OPENAI_API_KEY` | API ключ OpenAI | ❌ Опционально |
+| `OPENAI_MODEL` | Модель OpenAI | ❌ Опционально |
+| `OCR_SPACE_API_KEY` | API ключ OCR.space | ✅ Да (для OCR) |
+| `TEMP_DIR` | Директория временных файлов | ❌ Опционально |
 
-✅ **Защита от Path Traversal**
-- Нормализация путей файлов
-- Валидация имён файлов
-- Защита от выхода за пределы temp директории
+### Выбор LLM провайдера
 
-✅ **Валидация файлов**
-- Проверка MIME типов
-- Лимиты на размер файлов
-- Поддержка только безопасных форматов
+**Replicate (по умолчанию):**
+- Подходит для: Llama, Claude, Mistral
+- Преимущества: Дешево, мощно, быстро
 
-✅ **Безопасное хранение**
-- API ключи в переменных окружения
-- Автоматическая очистка временных файлов
-- Отсутствие логов с чувствительными данными
-
-✅ **Изоляция пользователей**
-- Персональные промпты для каждого пользователя
-- Раздельное хранение данных
-- Отсутствие доступа к чужим файлам
+**OpenAI:**
+- Подходит для: GPT-4, GPT-3.5
+- Преимущества: Стабильно, качественно
 
 ---
 
-## 🧪 Тестирование
+## Разработка
+
+### Установка dev-окружения
 
 ```bash
-# Установка dev зависимостей
 pip install -e ".[dev]"
+```
 
-# Запуск тестов
-pytest tests/
+### Code Style
 
-# С покрытием кода
-pytest --cov=app tests/
+**Форматирование (Black):**
+```bash
+black app tests main.py
+```
 
-# Линтинг
-ruff check app/
+**Linting (Ruff):**
+```bash
+ruff check app tests main.py
+```
 
-# Проверка типов
-mypy app/
+**Type checking (mypy):**
+```bash
+mypy app
+```
+
+### Добавление нового handler
+
+1. Создать файл в `app/handlers/`
+2. Определить Router:
+```python
+from aiogram import Router
+router = Router()
+
+@router.message(Command("mycommand"))
+async def handle_mycommand(message: Message):
+    pass
+```
+
+3. Зарегистрировать в `main.py`:
+```python
+from app.handlers import myhandler
+dispatcher.include_router(myhandler.router)
+```
+
+### Добавление новой FSM
+
+1. Создать в `app/states/`:
+```python
+from aiogram.fsm.state import State, StatesGroup
+
+class MyStates(StatesGroup):
+    waiting_for_input = State()
+    processing = State()
+```
+
+2. Использовать в handler:
+```python
+await state.set_state(MyStates.waiting_for_input)
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## Тестирование
 
-### Бот не отвечает
+### Запуск тестов
 
-**Проблема:** Бот не реагирует на команды
+```bash
+# Все тесты
+pytest
 
-**Решение:**
-1. Проверь `TG_BOT_TOKEN` в `.env`
-2. Убедись что бот запущен: `python main.py`
-3. Проверь логи: `LOG_LEVEL=DEBUG python main.py`
+# С покрытием
+pytest --cov=app --cov-report=html
 
-### Ошибка API ключа
+# Специфичный тест
+pytest tests/test_documents.py::test_analyze
 
-**Проблема:** `Invalid API key`
+# С логами
+pytest -v -s
+```
 
-**Решение:**
-1. Проверь `REPLICATE_API_TOKEN` в `.env`
-2. Убедись что токен активен на [replicate.com](https://replicate.com)
-3. Проверь баланс аккаунта
+### Структура тестов
 
-### Кнопки не работают
+```bash
+tests/
+├── test_documents.py      # Тесты анализа документов
+├── test_homework.py       # Тесты проверки домашки
+├── test_prompts.py        # Тесты управления промптами
+├── conftest.py           # Fixtures и конфигурация
+└── fixtures/             # Тестовые данные
+    ├── documents/
+    └── prompts/
+```
 
-**Проблема:** Нажатие на кнопки не работает
+### Пример теста
 
-**Решение:**
-1. Перезапусти бота
-2. Отправь `/start` заново
-3. Очисть кэш Telegram: Settings → Data and Storage → Clear Cache
+```python
+import pytest
+from app.services.prompts.prompt_manager import PromptManager
 
-### Меню не появляется в веб-версии
-
-**Проблема:** В Telegram Web нет меню команд
-
-**Решение:**
-1. Ctrl+Shift+R (hard reload)
-2. Очисти кэш браузера
-3. Открой в режиме инкогнито
-4. Используй мобильное приложение
-
----
-
-## 📈 Changelog
-
-### v2.0.0 (2025-12-19) - Major Update
-
-#### ✨ Новые возможности
-- ✅ **Три режима работы**: диалог, анализ, управление промптами
-- ✅ **GPT-4o-mini интеграция**: экономия 94% на токенах
-- ✅ **Система промптов**: 5 встроенных + создание своих
-- ✅ **Редактирование промптов**: полноценное управление
-- ✅ **Визуальный прогресс**: "🤔 Думаю над вопросом..."
-- ✅ **Полная русификация**: все интерфейсы на русском
-- ✅ **Улучшенная навигация**: интуитивные меню
-
-#### 🔧 Исправления
-- Fixed: Порядок регистрации роутеров
-- Fixed: Обработчики редактирования промптов
-- Fixed: Меню команд в Telegram
-- Fixed: Индикатор "typing" в чате
-- Fixed: Дефолтный режим после /start
-
-#### 📚 Документация
-- Complete README с примерами
-- Описание всех режимов работы
-- Troubleshooting гайд
-- Архитектура проекта
-
-### v1.0.0 (2025-12-19) - Initial Release
-- Basic document analysis
-- PDF, DOCX, TXT, ZIP support
-- OpenAI GPT integration
-- Security features
+@pytest.mark.asyncio
+async def test_get_prompt():
+    pm = PromptManager()
+    prompt = pm.get_prompt(123, "default")
+    assert prompt is not None
+    assert prompt.name == "default"
+```
 
 ---
 
-## 🤝 Contributing
+## 🚀 Развертывание
 
-Мы приветствуем ваши PR!
+### Docker
 
-### Как внести вклад
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+CMD ["python", "main.py"]
+```
+
+### Docker Compose
+
+```yaml
+version: '3.8'
+services:
+  bot:
+    build: .
+    environment:
+      - TG_BOT_TOKEN=${TG_BOT_TOKEN}
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
+    volumes:
+      - ./data:/app/data
+      - ./temp:/app/temp
+```
+
+### Systemd Service (Linux)
+
+```ini
+[Unit]
+Description=Uh Bot Telegram Service
+After=network.target
+
+[Service]
+Type=simple
+User=bot
+WorkingDirectory=/opt/uh-bot
+ExecStart=/opt/uh-bot/venv/bin/python main.py
+Restart=always
+EnvironmentFile=/opt/uh-bot/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
+
+## 📝 Лицензия
+
+MIT License - см. LICENSE
+
+---
+
+## 👥 Контрибьютинг
+
+Приветствуются Pull Request'ы! Пожалуйста:
 
 1. Fork репозиторий
-2. Создай feature branch: `git checkout -b feature/amazing-feature`
-3. Commit изменения: `git commit -m 'Add amazing feature'`
-4. Push в branch: `git push origin feature/amazing-feature`
-5. Открой Pull Request
-
-### Guidelines
-
-- Пиши тесты для новых функций
-- Следуй существующему стилю кода
-- Обновляй документацию
-- Добавляй docstrings
+2. Создайте feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit изменения (`git commit -m 'Add AmazingFeature'`)
+4. Push в branch (`git push origin feature/AmazingFeature`)
+5. Откройте Pull Request
 
 ---
 
-## 📜 License
+## 📞 Поддержка
 
-MIT License - see [LICENSE](LICENSE) file for details
+Если у вас есть вопросы:
 
----
-
-## 🙏 Благодарности
-
-- [Telegram Bot API](https://core.telegram.org/bots) - за отличное API
-- [OpenAI](https://openai.com/) - за GPT модели
-- [Replicate](https://replicate.com/) - за доступ к моделям
-- [aiogram](https://docs.aiogram.dev/) - за async Telegram framework
+1. Проверьте [Issues](https://github.com/severand/TG_bot/issues)
+2. Создайте новый Issue
+3. Свяжитесь: team@example.com
 
 ---
 
-## 📞 Support
+## 📚 Дополнительные ресурсы
 
-- 🐛 **Bug reports**: [GitHub Issues](https://github.com/severand/TG_bot/issues)
-- 💡 **Feature requests**: [GitHub Issues](https://github.com/severand/TG_bot/issues)
-- 📧 **Email**: support@example.com
-- 💬 **Telegram**: [@your_support_channel](https://t.me/your_channel)
-
----
-
-## 🌟 Roadmap
-
-### Планируемые фичи
-
-- [ ] **RAG с векторной БД** - база знаний с semantic search
-- [ ] **Режим /knowledge** - загрузка множества документов
-- [ ] **Поддержка изображений** - анализ графиков и диаграмм
-- [ ] **Голосовые сообщения** - транскрипция и анализ
-- [ ] **Экспорт результатов** - PDF, Excel, CSV
-- [ ] **Multi-user режим** - командная работа
-- [ ] **API endpoints** - интеграция с внешними системами
-- [ ] **Web interface** - веб-версия бота
+- [aiogram документация](https://docs.aiogram.dev/)
+- [Replicate API](https://replicate.com/)
+- [OpenAI API](https://platform.openai.com/)
+- [Telegram Bot API](https://core.telegram.org/bots)
 
 ---
 
-<div align="center">
-
-### Made with ❤️ by Andrey & Claude
-
-**⭐ Star us on GitHub — it motivates us a lot!**
-
-[Report Bug](https://github.com/severand/TG_bot/issues) · [Request Feature](https://github.com/severand/TG_bot/issues) · [Documentation](https://github.com/severand/TG_bot/wiki)
-
-</div>
+**Спасибо за использование Uh Bot! 🎉**
