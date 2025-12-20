@@ -1,5 +1,10 @@
 """Document handlers for file uploads and processing.
 
+Fixes 2025-12-20:
+- Added photo/image support via OCR.space API
+- Users can now send photos for document analysis (not just files)
+- Same OCR technology as homework handler
+
 Handles file uploads, processing, and analysis responses.
 Supports multiple LLM providers with fallback.
 """
@@ -7,11 +12,13 @@ Supports multiple LLM providers with fallback.
 import logging
 import tempfile
 import uuid
+import base64
 from pathlib import Path
 
 from aiogram import Router, F
 from aiogram.types import Message, Document, File
 from aiogram.fsm.context import FSMContext
+from aiogram.enums import ContentType
 
 from app.config import get_settings
 from app.states.analysis import DocumentAnalysisStates
@@ -234,6 +241,253 @@ async def handle_document(
             await CleanupManager.cleanup_files_async(files_to_cleanup)
         if temp_user_dir:
             await CleanupManager.cleanup_directory_async(temp_user_dir)
+
+
+@router.message(F.photo)
+async def handle_photo(
+    message: Message,
+    state: FSMContext,
+) -> None:
+    """Handle photo uploads with OCR extraction.
+    
+    Uses OCR.space API to extract text from photos,
+    then analyzes with LLM (same as documents).
+    
+    Args:
+        message: User message with photo
+        state: FSM state
+    """
+    if not message.photo:
+        await message.answer("❌ No photo received.")
+        return
+    
+    # Set state
+    await state.set_state(DocumentAnalysisStates.processing)
+    
+    # Show processing indicator
+    processing_msg = await message.answer(
+        "📸 Processing your photo...\n"
+        "Extracting text from image..."
+    )
+    
+    temp_user_dir = None
+    files_to_cleanup: list[Path] = []
+    
+    try:
+        # Create temp directory
+        temp_base = Path(config.TEMP_DIR)
+        temp_base.mkdir(exist_ok=True)
+        temp_user_dir = CleanupManager.create_temp_directory(
+            temp_base,
+            message.from_user.id,
+        )
+        
+        # Extract text from photo using OCR
+        extracted_text = await _extract_text_from_photo(message, temp_user_dir, files_to_cleanup)
+        
+        if not extracted_text or not extracted_text.strip():
+            await message.answer(
+                "⚠️ No text content found in the photo.\n"
+                "Please try:" 
+                "\n• A clearer photo of the text"
+                "\n• Ensure text is readable and in focus"
+            )
+            await state.clear()
+            return
+        
+        logger.info(f"Extracted {len(extracted_text)} characters from photo")
+        
+        # Store in state for later use
+        await state.update_data(
+            extracted_text=extracted_text,
+            original_filename="photo_document",
+            user_id=message.from_user.id,
+        )
+        
+        # Analyze with AI
+        await processing_msg.edit_text(
+            "📸 Processing your photo...\n"
+            f"🤖 Analyzing with {config.LLM_PROVIDER} AI..."
+        )
+        
+        # Create analysis prompt with explicit Russian requirement
+        analysis_prompt = (
+            "Проанализируй этот документ и предоставь ключевые выводы.\n"
+            "ОТВЕТ ДОЛЖЕН БЫТЬ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ!\n"
+            "Структурируй ответ четко с заголовками и пунктами.\n\n"
+            "Документ для анализа:"
+        )
+        
+        try:
+            analysis_result = await llm_factory.analyze_document(
+                extracted_text,
+                analysis_prompt,
+                use_streaming=False,
+            )
+        
+        except ValueError as e:
+            logger.error(f"No LLM providers available: {e}")
+            await message.answer(
+                "❌ No LLM provider configured. "
+                "Please set OPENAI_API_KEY or REPLICATE_API_TOKEN."
+            )
+            await state.clear()
+            return
+        
+        except Exception as e:
+            logger.error(f"LLM analysis error: {e}")
+            # Try to use alternative provider if available
+            available = llm_factory.get_available_providers()
+            if len(available) > 1:
+                other_provider = [
+                    p for p in available if p != config.LLM_PROVIDER
+                ][0]
+                logger.info(f"Switching to {other_provider} provider")
+                llm_factory.set_primary_provider(other_provider)
+                try:
+                    analysis_result = await llm_factory.analyze_document(
+                        extracted_text,
+                        analysis_prompt,
+                        use_streaming=False,
+                    )
+                except Exception as e2:
+                    logger.error(f"Fallback also failed: {e2}")
+                    await message.answer(f"❌ Analysis failed: {str(e2)}")
+                    await state.clear()
+                    return
+            else:
+                await message.answer(f"❌ Analysis failed: {str(e)}")
+                await state.clear()
+                return
+        
+        if not analysis_result:
+            await message.answer(
+                "❌ Analysis failed. Please try again later."
+            )
+            await state.clear()
+            return
+        
+        logger.info(f"Analysis completed ({len(analysis_result)} chars)")
+        
+        # Send response
+        await processing_msg.delete()
+        
+        splitter = TextSplitter()
+        message_count = splitter.count_messages(analysis_result)
+        
+        if message_count <= 3:
+            # Send as text messages
+            chunks = splitter.split(analysis_result)
+            for i, chunk in enumerate(chunks, 1):
+                prefix = f"*[Part {i}/{len(chunks)}]*\n\n" if len(chunks) > 1 else ""
+                await message.answer(
+                    f"{prefix}{chunk}",
+                    parse_mode="Markdown",
+                )
+        else:
+            # Too long - send as file
+            await send_analysis_as_file(
+                message,
+                analysis_result,
+                "photo_document",
+                temp_user_dir,
+                files_to_cleanup,
+            )
+        
+        logger.info(
+            f"Photo analysis sent to user {message.from_user.id} "
+            f"({message_count} messages) using {config.LLM_PROVIDER}"
+        )
+        await state.clear()
+    
+    except Exception as e:
+        logger.error(f"Error processing photo: {e}")
+        await message.answer(
+            f"❌ Error processing photo: {str(e)}"
+        )
+        await state.clear()
+    
+    finally:
+        # Cleanup
+        if files_to_cleanup:
+            await CleanupManager.cleanup_files_async(files_to_cleanup)
+        if temp_user_dir:
+            await CleanupManager.cleanup_directory_async(temp_user_dir)
+
+
+async def _extract_text_from_photo(
+    message: Message,
+    temp_dir: Path,
+    cleanup_list: list[Path],
+) -> str:
+    """Extract text from photo using OCR.space cloud API.
+    
+    Args:
+        message: Message with photo
+        temp_dir: Temporary directory
+        cleanup_list: List to add files for cleanup
+        
+    Returns:
+        Extracted text from photo
+    """
+    try:
+        import httpx
+        
+        # Get largest photo
+        photo = message.photo[-1]
+        file_info = await message.bot.get_file(photo.file_id)
+        
+        # Download photo
+        temp_file = temp_dir / f"photo_{photo.file_unique_id}.jpg"
+        await message.bot.download_file(file_info.file_path, temp_file)
+        cleanup_list.append(temp_file)
+        
+        # Read photo as base64
+        with open(temp_file, "rb") as f:
+            photo_bytes = f.read()
+        
+        photo_base64 = base64.b64encode(photo_bytes).decode("utf-8")
+        
+        # Call OCR.space API
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.ocr.space/parse/image",
+                data={
+                    "apikey": config.OCR_SPACE_API_KEY,
+                    "base64Image": f"data:image/jpeg;base64,{photo_base64}",
+                    "language": "rus",  # Russian
+                    "isOverlayRequired": False,
+                    "detectOrientation": True,
+                    "scale": True,
+                    "OCREngine": 2,  # Engine 2 for better accuracy
+                },
+                timeout=30.0,
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"OCR.space API error: {response.status_code} {response.text}")
+                return ""
+            
+            result = response.json()
+            
+            if result.get("IsErroredOnProcessing"):
+                error_msg = result.get("ErrorMessage", ["Unknown error"])
+                logger.error(f"OCR processing error: {error_msg}")
+                return ""
+            
+            # Extract text from all parsed results
+            parsed_results = result.get("ParsedResults", [])
+            if not parsed_results:
+                logger.warning("No text detected in image")
+                return ""
+            
+            text = parsed_results[0].get("ParsedText", "")
+            logger.info(f"OCR: Extracted {len(text)} chars from photo")
+            return text.strip()
+    
+    except Exception as e:
+        logger.error(f"Failed to extract text from photo via OCR: {e}")
+        return ""
 
 
 async def send_analysis_as_file(
