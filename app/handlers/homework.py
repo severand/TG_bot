@@ -8,18 +8,16 @@ from typing import Optional
 from pathlib import Path
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, File
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.filters.command import Command
 from aiogram.enums import ContentType
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.client.session import aiohttp_session
 
 from app.states.homework import HomeworkStates
 from app.services.homework import HomeworkChecker, SubjectCheckers, ResultVisualizer
 from app.services.llm.replicate_service import ReplicateService
 from app.services.file_processing.pdf_processor import process_pdf
-from app.services.file_processing.image_processor import process_image
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
