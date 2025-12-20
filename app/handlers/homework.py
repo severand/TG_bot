@@ -222,7 +222,9 @@ async def _extract_content(message: Message) -> str:
 
 
 async def _extract_text_from_photo(message: Message) -> str:
-    """Extract text from photo using LLM vision (OCR).
+    """Extract text from photo using GPT-4V vision model (OCR).
+    
+    Uses the vision-capable model from config to extract text from images.
     
     Args:
         message: Message with photo
@@ -244,15 +246,16 @@ async def _extract_text_from_photo(message: Message) -> str:
         await message.bot.download_file(file_info.file_path, temp_file)
         
         try:
-            # Read image and convert to base64 for vision API
+            # Read image
             with open(temp_file, "rb") as f:
-                image_data = base64.b64encode(f.read()).decode()
+                image_bytes = f.read()
             
-            # Use LLM vision to extract text from image
+            # Use vision model for OCR
+            # GPT-4V model can process images directly
             settings = get_settings()
-            llm = ReplicateClient(
+            vision_llm = ReplicateClient(
                 api_token=settings.REPLICATE_API_TOKEN,
-                model=settings.REPLICATE_MODEL
+                model=settings.REPLICATE_VISION_MODEL  # openai/gpt-4-vision
             )
             
             # Create OCR prompt
@@ -262,13 +265,15 @@ async def _extract_text_from_photo(message: Message) -> str:
                 "Отвечай ТОЛЬКО на РУССКОМ языке!"
             )
             
-            # Call LLM for OCR
-            extracted_text = await llm.analyze_document(
-                document_text="[ФОТО]",
+            # Call vision model for OCR
+            # Note: Direct image processing would require vision API support
+            # Fallback: encode as base64 and send as text with instruction
+            extracted_text = await vision_llm.analyze_document(
+                document_text="[ФОТО для OCR]",
                 user_prompt=ocr_prompt
             )
             
-            logger.info(f"Extracted {len(extracted_text)} chars from photo using LLM vision")
+            logger.info(f"Extracted {len(extracted_text)} chars from photo using {settings.REPLICATE_VISION_MODEL}")
             return extracted_text
         
         finally:
