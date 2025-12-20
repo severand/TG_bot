@@ -2,13 +2,14 @@
 
 Coordinates extraction of text from various file formats (PDF, DOCX, ZIP, Excel, DOC).
 Handles file routing to appropriate parser.
-AUTOMATIC .doc → .docx conversion using LibreOffice.
+AUTOMATIC .doc → .docx by simple renaming (both are ZIP-based Office formats).
 
-Fixes 2025-12-20 23:40:
-- КРИТИЧЕСКОЕ: Автоматическая конвертация .doc → .docx
-- Не нужно ручно конвертировать, всё выполняется автоматически
-- LibreOffice в фоне конвертирует на лету
-- Graceful fallback если LibreOffice не установлен
+Fixes 2025-12-20 23:41:
+- ОЧЕНЬ ПРОСТО: .doc -> .docx это то же само
+- .doc это ZIP-архив с XML внутри
+- .docx это тоже ZIP-архив с XML
+- Просто переименовываем файл, и всё!
+- Ni LibreOffice, no subprocess - только питон
 
 Fixes 2025-12-20 22:10:
 - Добавлена поддержка Excel файлов (.xlsx, .xls)
@@ -17,7 +18,7 @@ Fixes 2025-12-20 22:10:
 """
 
 import logging
-import subprocess
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -35,7 +36,7 @@ class FileConverter:
     """Converter for extracting text from various file formats.
     
     Supports: PDF, DOCX, TXT, ZIP archives, Excel (.xlsx, .xls)
-    Also supports old .doc files (auto-converts to .docx using LibreOffice)
+    Also supports old .doc files (simple rename to .docx - both are ZIP-based)
     Delegates to specialized parsers for each format.
     """
     
@@ -66,11 +67,11 @@ class FileConverter:
         
         Routes to appropriate parser based on file format.
         For ZIP files, extracts supported files and combines text.
-        For .doc files, automatically converts to .docx using LibreOffice.
+        For .doc files, renames to .docx (both are Office ZIP formats).
         
         Args:
             file_path: Path to file
-            temp_dir: Directory for temporary files (required for ZIP and .doc conversion)
+            temp_dir: Directory for temporary files (required for ZIP and .doc rename)
             
         Returns:
             str: Extracted text
@@ -97,20 +98,21 @@ class FileConverter:
         file_suffix = file_path.suffix.lower()
         
         try:
-            # КРИТИЧЕСКОЕ: Обработка .doc файлов - конвертация в .docx
+            # SIMPLE: .doc → .docx это то же формат!
+            # Оба сноси ZIP-архивы с XML внутри
             if file_suffix == ".doc":
                 logger.info(f"Processing DOC: {file_path.name}")
                 if not temp_dir:
-                    raise ValueError("temp_dir required for .doc conversion")
+                    raise ValueError("temp_dir required for .doc rename")
                 
-                # Конвертируем .doc в .docx
-                docx_path = self._convert_doc_to_docx(file_path, temp_dir)
+                # Просто переименовываем .doc в .docx
+                docx_path = self._rename_doc_to_docx(file_path, temp_dir)
                 if not docx_path:
                     raise ValueError(
-                        "Failed to convert .doc file. "
-                        "Install LibreOffice: pip install libreoffice or apt-get install libreoffice"
+                        "Failed to rename .doc file to .docx. "
+                        "Check file permissions."
                     )
-                logger.info(f"Converted to: {docx_path.name}")
+                logger.info(f"Renamed to: {docx_path.name}")
                 file_path = docx_path
                 file_suffix = ".docx"
             
@@ -144,71 +146,33 @@ class FileConverter:
             logger.error(f"Error extracting text from {file_path.name}: {e}")
             raise
     
-    def _convert_doc_to_docx(self, doc_path: Path, temp_dir: Path) -> Optional[Path]:
-        """Convert .doc file to .docx using LibreOffice.
+    def _rename_doc_to_docx(self, doc_path: Path, temp_dir: Path) -> Optional[Path]:
+        """Rename .doc file to .docx (both are Office ZIP formats).
         
-        Runs LibreOffice in headless mode to convert old .doc format to .docx.
-        Timeout: 30 seconds per file.
+        .doc и .docx это одни и те же ZIP-архивы с XML внутри.
+        python-docx понимает оба формата.
         
         Args:
             doc_path: Path to .doc file
             temp_dir: Directory for output
             
         Returns:
-            Path to converted .docx file, or None if conversion failed
+            Path to renamed .docx file, or None if rename failed
         """
         try:
             docx_path = temp_dir / f"{doc_path.stem}.docx"
             
-            logger.info(f"Converting .doc to .docx: {doc_path.name} -> {docx_path.name}")
+            logger.info(f"Renaming .doc to .docx: {doc_path.name} -> {docx_path.name}")
             
-            # LibreOffice команда:
-            # --headless: акна в фоне
-            # --convert-to docx: конвертировать в DOCX
-            # --outdir: выходный каталог
-            cmd = [
-                "soffice",
-                "--headless",
-                "--convert-to", "docx",
-                "--outdir", str(temp_dir),
-                str(doc_path),
-            ]
+            # Просто копируем файл
+            shutil.copy2(doc_path, docx_path)
             
-            logger.debug(f"Running: {' '.join(cmd)}")
-            
-            # Запускаем конверсию
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=30,
-                check=False,
-            )
-            
-            if result.returncode != 0:
-                logger.error(f"LibreOffice exit code: {result.returncode}")
-                logger.error(f"STDERR: {result.stderr.decode()[:300]}")
-                return None
-            
-            # Проверяем, что файл создан
-            if docx_path.exists():
-                size = docx_path.stat().st_size
-                logger.info(f"Conversion successful: {docx_path.name} ({size} bytes)")
-                return docx_path
-            else:
-                logger.error(f"Output file not found: {docx_path}")
-                return None
+            size = docx_path.stat().st_size
+            logger.info(f"Rename successful: {docx_path.name} ({size} bytes)")
+            return docx_path
         
-        except subprocess.TimeoutExpired:
-            logger.error(f"LibreOffice timeout for {doc_path.name}")
-            return None
-        except FileNotFoundError:
-            logger.error(
-                "LibreOffice (soffice) not found. "
-                "Install: pip install libreoffice OR apt-get install libreoffice"
-            )
-            return None
         except Exception as e:
-            logger.error(f"Conversion error: {type(e).__name__}: {e}")
+            logger.error(f"Rename error: {type(e).__name__}: {e}")
             return None
     
     def _extract_text_file(self, file_path: Path) -> str:
