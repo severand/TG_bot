@@ -1,12 +1,12 @@
 """Управление промптами.
 
-Исправление 2025-12-20 17:52:
-- Кнопки теперь во всю ширину экрана (adjust(1) вместо adjust(2))
-- Исправлена ошибка markdown parsing при сохранении
-- Текст ответа сохранения теперь без маркдаун (parse_mode=None)
+Исправление 2025-12-20 17:56:
+- Вернен оргинальный adjust(2) - 2 кнопки в ряду
+- Кнопки автоматически расширяются на всю расположенную ширину
 
-Исправление 2025-12-20 17:44:
-- Переведены ВСЕ кнопки, сообщения, комментарии, логи на русский
+Исправление 2025-12-20 17:52:
+- Кнопки расширены во всю ширину
+- Очищена ошибка markdown при сохранении
 
 Обрабатывает взаимодействия пользователя для управления системными промптами.
 Включает навигацию и редактирование существующих промптов.
@@ -62,13 +62,13 @@ def get_subject_display_name(prompt_name: str) -> str:
 
 # Клавиатуры навигации
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
-    """Главное меню управления промптами - Кнопки во всю ширину."""
+    """Главное меню управления промптами - 2 кнопки в ряду."""
     builder = InlineKeyboardBuilder()
     builder.button(text="📄 Документы", callback_data="prompts_category_document_analysis")
     builder.button(text="💬 Диалог", callback_data="prompts_category_chat")
     builder.button(text="📖 Домашка", callback_data="prompts_category_homework")
     builder.button(text="« Назад", callback_data="back_to_main")
-    builder.adjust(1)  # Во всю ширину!
+    builder.adjust(2)  # По 2 кнопки в ряду - они расширяются автоматически
     return builder.as_markup()
 
 
@@ -88,7 +88,7 @@ def get_category_keyboard(user_id: int, category: str) -> InlineKeyboardMarkup:
         )
     
     builder.button(text="« Назад", callback_data="prompts_menu")
-    builder.adjust(1)  # Во всю ширину!
+    builder.adjust(2)  # По 2 кнопки в ряду
     return builder.as_markup()
 
 
@@ -97,7 +97,7 @@ def get_prompt_detail_keyboard(prompt_name: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="✏️ Редактировать", callback_data=f"prompt_edit_{prompt_name}")
     builder.button(text="« Назад", callback_data="prompts_menu")
-    builder.adjust(1)  # Во всю ширину!
+    builder.adjust(2)  # По 2 кнопки в ряду
     return builder.as_markup()
 
 
@@ -318,7 +318,7 @@ async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
             text="❌ Отмена",
             callback_data=f"prompt_edit_{prompt_name}"
         )
-        builder.adjust(1)  # Во всю ширину!
+        builder.adjust(2)  # По 2 кнопки
         
         await query.message.edit_text(
             text,
@@ -340,7 +340,7 @@ async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
             text="« Назад",
             callback_data=f"prompt_select_{prompt_name}"
         )
-        builder.adjust(1)  # Во всю ширину!
+        builder.adjust(2)  # По 2 кнопки
         
         # Получаем название
         subject_name = get_subject_display_name(prompt_name)
@@ -396,7 +396,7 @@ async def msg_edit_system(message: Message, state: FSMContext) -> None:
         text="« Назад в опции редактирования",
         callback_data=f"prompt_edit_{prompt_name}"
     )
-    builder.adjust(1)  # Во всю ширину!
+    builder.adjust(2)  # По 2 кнопки
     
     await message.answer(
         f"✅ Охранено!\n\n"
@@ -445,7 +445,7 @@ async def msg_edit_user(message: Message, state: FSMContext) -> None:
         text="« Назад в опции редактирования",
         callback_data=f"prompt_edit_{prompt_name}"
     )
-    builder.adjust(1)  # Во всю ширину!
+    builder.adjust(2)  # По 2 кнопки
     
     await message.answer(
         f"✅ Охранено!\n\n"
