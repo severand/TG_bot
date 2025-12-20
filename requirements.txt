@@ -10,6 +10,9 @@ python-dotenv>=1.0.0
 structlog>=23.0.0
 aiofiles>=23.0.0
 
+# Excel/XLS support for document parsing
+openpyxl>=3.10.0
+
 # OCR dependencies
 pytesseract>=0.3.10
 Pillow>=10.0.0
