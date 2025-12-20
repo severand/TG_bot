@@ -1,5 +1,11 @@
 """Prompt management system for custom AI prompts.
 
+Fixes 2025-12-20 17:07:
+- Added CHAT and HOMEWORK system prompts that users can edit
+- All system prompts now managed through PromptManager
+- chat.py and homework.py can retrieve prompts from manager
+- Backward compatible with existing default prompts
+
 Fixes 2025-12-20 16:35:
 - update_prompt now creates user copy if editing system prompt
 - Ensures changes are actually saved to user_prompts dict
@@ -93,13 +99,14 @@ class PromptManager:
     
     Provides:
     - Storage and retrieval of custom prompts
-    - System default prompts
+    - System default prompts (DOCUMENT_ANALYSIS, CHAT, HOMEWORK)
     - User-specific prompt management
     - Prompt validation
     """
     
     # Default system prompts - ALL IN RUSSIAN
     DEFAULT_PROMPTS = {
+        # ===== DOCUMENT ANALYSIS PROMPTS =====
         "default": PromptTemplate(
             name="default",
             system_prompt=(
@@ -174,6 +181,45 @@ class PromptManager:
             ),
             description="⚖️ Юридическая проверка",
         ),
+        # ===== CHAT (DIALOG) PROMPTS =====
+        "chat_system": PromptTemplate(
+            name="chat_system",
+            system_prompt=(
+                "Помощник для объяснения комплексных тем. "
+                "Отвечай на русском языке. "
+                "Будь подробным, полным и полезным. "
+                "Объясняй сложные концепции доступным языком. "
+                "Используй примеры и аналогии для лучшего понимания."
+            ),
+            user_prompt_template="{user_message}",
+            description="💬 Основной диалог",
+        ),
+        # ===== HOMEWORK CHECK PROMPTS =====
+        "homework_system": PromptTemplate(
+            name="homework_system",
+            system_prompt=(
+                "Ты опытный учитель и эксперт по проверке домашних заданий. "
+                "Проверяй ответы студентов справедливо и конструктивно. "
+                "Выделяй правильные части, указывай ошибки и предлагай улучшения. "
+                "Объясняй, почему что-то неправильно, и как это исправить. "
+                "Будь мотивирующим и поддерживающим в своем тоне."
+            ),
+            user_prompt_template="Проверь это домашнее задание по {subject}:",
+            description="📖 Проверка домашнего задания",
+        ),
+    }
+    
+    # Prompt categories for UI organization
+    PROMPT_CATEGORIES = {
+        "document_analysis": [
+            "default",
+            "summarize",
+            "extract_entities",
+            "risk_analysis",
+            "legal_review",
+        ],
+        "chat": ["chat_system"],
+        "homework": ["homework_system"],
     }
     
     def __init__(self, storage_dir: Path = Path("./data/prompts")) -> None:
@@ -210,6 +256,33 @@ class PromptManager:
         
         # Check defaults
         return self.DEFAULT_PROMPTS.get(prompt_name)
+    
+    def get_prompt_by_category(
+        self,
+        user_id: int,
+        category: str,
+    ) -> Dict[str, PromptTemplate]:
+        """Get all prompts in a category.
+        
+        Args:
+            user_id: User ID
+            category: Category name (document_analysis, chat, homework)
+            
+        Returns:
+            Dict of prompts in category
+        """
+        if category not in self.PROMPT_CATEGORIES:
+            return {}
+        
+        prompt_names = self.PROMPT_CATEGORIES[category]
+        result = {}
+        
+        for name in prompt_names:
+            prompt = self.get_prompt(user_id, name)
+            if prompt:
+                result[name] = prompt
+        
+        return result
     
     def save_prompt(
         self,
@@ -326,13 +399,20 @@ class PromptManager:
     ) -> bool:
         """Delete user prompt.
         
+        Note: Cannot delete system prompts, only user-created ones.
+        
         Args:
             user_id: User ID
             prompt_name: Prompt name
             
         Returns:
-            bool: True if deleted, False if not found
+            bool: True if deleted, False if not found or is system prompt
         """
+        # Prevent deletion of system prompts
+        if prompt_name in self.DEFAULT_PROMPTS:
+            logger.warning(f"Cannot delete system prompt '{prompt_name}'")
+            return False
+        
         if user_id in self.user_prompts and prompt_name in self.user_prompts[user_id]:
             del self.user_prompts[user_id][prompt_name]
             self._save_user_prompts(user_id)
