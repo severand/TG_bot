@@ -147,7 +147,7 @@ async def process_homework_file(
         
         # Initialize LLM service
         settings = get_settings()
-        llm = ReplicateService(api_key=settings.REPLICATE_API_KEY)
+        llm = ReplicateService(api_key=settings.REPLICATE_API_TOKEN)
         checker = HomeworkChecker(llm)
         
         # Check homework
