@@ -1,7 +1,7 @@
 """Configuration module for Uh Bot.
 
 Fixes 2025-12-20:
-- Replaced Tesseract with OCR.space cloud API (no installation needed)
+- Updated OCR.space API key to user's key (K84178285088957)
 
 Manages environment variables and validation using Pydantic.
 All secrets (API keys, tokens) are loaded from .env file.
@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o"  # GPT-4o with vision support
     REPLICATE_MODEL: str = "meta/llama-2-70b-chat"  # Replicate model (text)
     REPLICATE_VISION_MODEL: str = "yorickvp/llava-13b"  # LLaVA vision model
-    OCR_SPACE_API_KEY: str = "K87899142388957"  # Free tier API key (can override in .env)
+    OCR_SPACE_API_KEY: str = "K84178285088957"  # User's OCR.space API key
     
     class Config:
         """Pydantic config."""
