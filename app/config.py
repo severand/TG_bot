@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     
     Attributes:
         TG_BOT_TOKEN: Telegram Bot API token
-        OPENAI_API_KEY: OpenAI API key for GPT-5
+        OPENAI_API_KEY: OpenAI API key for GPT-4o
         REPLICATE_API_TOKEN: Replicate API token (optional)
         LLM_PROVIDER: Primary LLM provider (openai or replicate)
         LOG_LEVEL: Logging level (DEBUG, INFO, WARNING, ERROR)
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
         RESPONSE_THRESHOLD: Number of messages before generating docx (3 default)
         TEMP_DIR: Temporary directory for file storage
         OPENAI_MODEL: OpenAI model to use
-        REPLICATE_MODEL: Replicate model to use
+        REPLICATE_MODEL: Replicate model to use (supports image/vision)
         
     Example:
         >>> config = get_settings()
@@ -38,8 +38,9 @@ class Settings(BaseSettings):
     MAX_ARCHIVE_SIZE: int = 100 * 1024 * 1024  # 100MB
     RESPONSE_THRESHOLD: int = 3  # Messages before generating docx
     TEMP_DIR: str = "./temp"
-    OPENAI_MODEL: str = "gpt-4o"  # Fallback to gpt-4o if gpt-5 unavailable
-    REPLICATE_MODEL: str = "openai/gpt-5"  # Replicate model
+    OPENAI_MODEL: str = "gpt-4o"  # GPT-4o with vision support
+    REPLICATE_MODEL: str = "meta/llama-2-70b-chat"  # Replicate model (text)
+    REPLICATE_VISION_MODEL: str = "openai/gpt-4-vision"  # For image/OCR tasks
     
     class Config:
         """Pydantic config."""
