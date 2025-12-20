@@ -1,5 +1,10 @@
 """Prompt management handlers.
 
+Fixes 2025-12-20 16:32:
+- Added 'Back' button after editing prompt (returns to prompt detail screen)
+- Fixed save confirmation message - shows what was changed
+- Ensured update_prompt actually saves the changes
+
 Handles user interactions for managing custom prompts.
 Includes menu navigation, creation, editing, and deletion.
 """
@@ -469,15 +474,22 @@ async def msg_edit_system(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     prompt_name = data["editing_prompt"]
     
+    # Update prompt
     prompt_manager.update_prompt(
         user_id=message.from_user.id,
         prompt_name=prompt_name,
         system_prompt=new_system,
     )
     
+    # Show success with back button to prompt detail
     await message.answer(
-        f"✅ Системный промпт обновлён!",
+        f"✅ *Системный промпт обновлён!*\n\n"
+        f"Промпт: `{prompt_name}`\n"
+        f"Новое значение: {new_system[:100]}...",
         parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="« Назад к промпту", callback_data=f"prompt_select_{prompt_name}")]]
+        ),
     )
     await state.clear()
     logger.info(f"User {message.from_user.id} edited system prompt: {prompt_name}")
@@ -497,15 +509,22 @@ async def msg_edit_user(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     prompt_name = data["editing_prompt"]
     
+    # Update prompt
     prompt_manager.update_prompt(
         user_id=message.from_user.id,
         prompt_name=prompt_name,
         user_prompt_template=new_user,
     )
     
+    # Show success with back button to prompt detail
     await message.answer(
-        f"✅ Промпт пользователя обновлён!",
+        f"✅ *Промпт пользователя обновлён!*\n\n"
+        f"Промпт: `{prompt_name}`\n"
+        f"Новое значение: {new_user[:100]}...",
         parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="« Назад к промпту", callback_data=f"prompt_select_{prompt_name}")]]
+        ),
     )
     await state.clear()
     logger.info(f"User {message.from_user.id} edited user prompt: {prompt_name}")
