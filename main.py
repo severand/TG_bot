@@ -12,7 +12,7 @@ from aiogram import Dispatcher
 
 from app.bot import create_bot, create_dispatcher, setup_bot_commands
 from app.config import get_settings
-from app.handlers import common, documents, prompts, conversation, chat
+from app.handlers import common, documents, prompts, conversation, chat, homework
 
 # Setup logging
 logging.basicConfig(
@@ -69,6 +69,7 @@ async def main() -> None:
     # Register handlers (order matters!)
     # IMPORTANT: Specific handlers MUST come BEFORE general ones
     # Otherwise common.router might intercept all commands
+    dispatcher.include_router(homework.router)      # NEW - /homework command
     dispatcher.include_router(prompts.router)       # 1st - /prompts command
     dispatcher.include_router(conversation.router)  # 2nd - /analyze command
     dispatcher.include_router(chat.router)          # 3rd - /chat command
