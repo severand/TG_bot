@@ -17,6 +17,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from app.states.homework import HomeworkStates
 from app.services.homework import HomeworkChecker, SubjectCheckers, ResultVisualizer
 from app.services.llm.replicate_client import ReplicateClient
+from app.services.file_processing import PDFParser, DocxParser
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -212,38 +213,26 @@ async def _extract_content(message: Message) -> str:
         # Download and save
         await message.bot.download_file(file_info.file_path, file_path)
         
-        # Process based on file type
-        if message.document.mime_type == "application/pdf":
-            try:
-                import pypdf
-                with open(file_path, 'rb') as pdf_file:
-                    pdf_reader = pypdf.PdfReader(pdf_file)
-                    text_parts = []
-                    for page in pdf_reader.pages:
-                        text_parts.append(page.extract_text())
-                    content = "\n".join(text_parts)
-            except Exception as e:
-                logger.error(f"Error processing PDF: {e}")
-                raise ValueError(f"Cannot read PDF: {e}")
-        elif message.document.mime_type in [
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/msword"
-        ]:
-            try:
-                from docx import Document
-                doc = Document(file_path)
-                content = "\n".join([p.text for p in doc.paragraphs])
-            except Exception as e:
-                logger.error(f"Error processing DOCX: {e}")
-                raise ValueError("Cannot read DOCX file")
-        elif message.document.mime_type == "text/plain":
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-        else:
-            raise ValueError(f"Unsupported file type: {message.document.mime_type}")
-        
-        # Clean up
-        file_path.unlink()
+        try:
+            # Process based on file type
+            if message.document.mime_type == "application/pdf":
+                pdf_parser = PDFParser()
+                content = pdf_parser.parse(str(file_path))
+            elif message.document.mime_type in [
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/msword"
+            ]:
+                docx_parser = DocxParser()
+                content = docx_parser.parse(str(file_path))
+            elif message.document.mime_type == "text/plain":
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            else:
+                raise ValueError(f"Unsupported file type: {message.document.mime_type}")
+        finally:
+            # Clean up
+            if file_path.exists():
+                file_path.unlink()
         
         return content
     
