@@ -10,6 +10,10 @@ python-dotenv>=1.0.0
 structlog>=23.0.0
 aiofiles>=23.0.0
 
+# OCR dependencies
+pytesseract>=0.3.10
+Pillow>=10.0.0
+
 # Optional: Development dependencies
 # Uncomment if needed:
 # pytest>=7.4.0
