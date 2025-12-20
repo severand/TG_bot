@@ -8,7 +8,7 @@ import logging
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
-from app.services.llm.replicate_service import ReplicateService
+from app.services.llm.replicate_client import ReplicateClient
 from app.services.homework.rubric import SUBJECT_RUBRICS, GradingRubric
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class HomeworkResult:
 class HomeworkChecker:
     """Checks homework using LLM."""
     
-    def __init__(self, llm_service: ReplicateService):
+    def __init__(self, llm_service: ReplicateClient):
         """Initialize checker.
         
         Args:
@@ -69,7 +69,10 @@ class HomeworkChecker:
         
         # Get LLM response
         try:
-            response = await self.llm.query(prompt)
+            response = await self.llm.analyze_document(
+                document_text=content,
+                user_prompt=prompt
+            )
         except Exception as e:
             logger.error(f"LLM error during homework check: {e}")
             raise
@@ -99,9 +102,6 @@ class HomeworkChecker:
 
 Evaluation Criteria:
 {criteria_text}
-
-Homework Content:
-{content}
 
 Provide evaluation in JSON format:
 {{
