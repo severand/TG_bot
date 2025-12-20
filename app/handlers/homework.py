@@ -1,11 +1,13 @@
 """Homework checking handler.
 
 Handles /homework command for checking student homework.
+OCR: Uses LLaVA vision model to extract text from photos.
 """
 
 import logging
 from typing import Optional
 from pathlib import Path
+import httpx
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
@@ -107,9 +109,9 @@ async def select_subject(
             f"{subject.emoji} <b>{subject.name}</b>\n\n"
             f"💬 {subject.description}\n\n"
             f"📄 Отправьте:\n"
-            f"• Текстовое сообщение с вашим решением\n"
-            f"• PDF или DOCX файл с заданием\n"
-            f"• Фото с подписью (опишите что на фото)"
+            f"• Текстовое сообщение\n"
+            f"• PDF или DOCX файл\n"
+            f"• Фото (распознается автоматически)"
         ),
         parse_mode="HTML",
         reply_markup=None
@@ -152,10 +154,10 @@ async def process_homework_file(
             await processing_msg.edit_text(
                 text=(
                     f"❌ Не удалось получить текст\n\n"
-                    f"💡 <b>Рекомендации:</b>\n"
-                    f"• Отправьте решение текстом\n"
-                    f"• Используйте PDF или DOCX файл\n"
-                    f"• К фото добавьте подпись с решением"
+                    f"💡 Пробуюте:\n"
+                    f"• Отправьте текст выче\n"
+                    f"• Отослите решение текстом\n"
+                    f"• Отослите высоки качество фото с четким текстом"
                 ),
                 parse_mode="HTML"
             )
@@ -199,33 +201,174 @@ async def process_homework_file(
 async def _extract_content(message: Message) -> str:
     """Extract content from message.
     
+    Handles:
+    - Text messages (direct text)
+    - PDF/DOCX files (extract text)
+    - Photos (OCR via LLaVA vision model)
+    
     Args:
         message: Message with file or text
         
     Returns:
         Extracted text content
-        
-    Raises:
-        ValueError: If content cannot be extracted
     """
     # Handle text message
     if message.text:
         return message.text
     
-    # Handle photo - use caption as content
+    # Handle photo - use LLaVA OCR
     if message.photo:
-        if message.caption and message.caption.strip():
-            logger.info(f"Using photo caption as content ({len(message.caption)} chars)")
-            return message.caption
-        else:
-            logger.warning("Photo sent without caption")
-            return ""  # Empty content will trigger error message
+        return await _extract_text_from_photo(message)
     
     # Handle document
     if message.document:
         return await _extract_text_from_document(message)
     
     raise ValueError("Неподдерживаемый тип содержимого")
+
+
+async def _extract_text_from_photo(message: Message) -> str:
+    """Extract text from photo using LLaVA vision model (OCR).
+    
+    Steps:
+    1. Download photo from Telegram
+    2. Upload to temporary URL accessible by Replicate
+    3. Call LLaVA model with OCR prompt
+    4. Return extracted text
+    
+    Args:
+        message: Message with photo
+        
+    Returns:
+        Extracted text from photo
+    """
+    try:
+        # Get the largest photo
+        photo = message.photo[-1]
+        file_info = await message.bot.get_file(photo.file_id)
+        
+        # Download photo
+        settings = get_settings()
+        temp_dir = Path(settings.TEMP_DIR)
+        temp_dir.mkdir(exist_ok=True)
+        
+        temp_file = temp_dir / f"photo_{photo.file_unique_id}.jpg"
+        await message.bot.download_file(file_info.file_path, temp_file)
+        
+        try:
+            # Read photo bytes
+            with open(temp_file, "rb") as f:
+                photo_bytes = f.read()
+            
+            # Get Replicate API token
+            settings = get_settings()
+            api_token = settings.REPLICATE_API_TOKEN
+            
+            # Call LLaVA vision model directly via Replicate API
+            # Using the correct model version
+            extracted_text = await _call_llava_ocr(
+                photo_bytes=photo_bytes,
+                api_token=api_token
+            )
+            
+            logger.info(f"OCR: Extracted {len(extracted_text)} chars from photo")
+            return extracted_text
+        
+        finally:
+            # Clean up
+            if temp_file.exists():
+                temp_file.unlink()
+    
+    except Exception as e:
+        logger.error(f"Failed to extract text from photo via OCR: {e}")
+        return ""
+
+
+async def _call_llava_ocr(photo_bytes: bytes, api_token: str) -> str:
+    """Call LLaVA vision model for OCR via Replicate API.
+    
+    Uses streaming to get text extraction results.
+    
+    Args:
+        photo_bytes: Photo file bytes
+        api_token: Replicate API token
+        
+    Returns:
+        Extracted text
+    """
+    import base64
+    import json
+    
+    # Encode photo as base64
+    photo_base64 = base64.b64encode(photo_bytes).decode("utf-8")
+    photo_data_uri = f"data:image/jpeg;base64,{photo_base64}"
+    
+    # Prepare request to Replicate API
+    # Using LLaVA v1.6 Mistral 7B (more efficient)
+    model_version = "19be067b589d0c46689ffa7cc3ff321447a441986a7694c01225973c2eafc874"
+    
+    prompt = (
+        "Опиши ВЕСЬ текст на этом изображении.\n"
+        "Выпиши каждое слово так как оно написано.\n"
+        "Ответ ТОЛЬКО на русском языке!"
+    )
+    
+    payload = {
+        "image": photo_data_uri,
+        "prompt": prompt,
+    }
+    
+    # Call Replicate API
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                f"https://api.replicate.com/v1/predictions",
+                json={
+                    "version": model_version,
+                    "input": payload,
+                },
+                headers={"Authorization": f"Token {api_token}"},
+                timeout=60.0,
+            )
+            
+            if response.status_code != 201:
+                raise Exception(f"Replicate API error: {response.status_code} {response.text}")
+            
+            prediction = response.json()
+            prediction_id = prediction.get("id")
+            
+            # Poll for result
+            max_attempts = 30  # 30 seconds max wait
+            for attempt in range(max_attempts):
+                result_response = await client.get(
+                    f"https://api.replicate.com/v1/predictions/{prediction_id}",
+                    headers={"Authorization": f"Token {api_token}"},
+                    timeout=10.0,
+                )
+                
+                result_data = result_response.json()
+                status = result_data.get("status")
+                
+                if status == "succeeded":
+                    output = result_data.get("output", "")
+                    # Output might be a list or string
+                    if isinstance(output, list):
+                        return "".join(output)
+                    return str(output)
+                
+                elif status == "failed":
+                    error = result_data.get("error", "Unknown error")
+                    raise Exception(f"Prediction failed: {error}")
+                
+                # Wait before next poll
+                import asyncio
+                await asyncio.sleep(1)
+            
+            raise Exception("Timeout waiting for OCR result")
+        
+        except Exception as e:
+            logger.error(f"LLaVA OCR error: {e}")
+            raise
 
 
 async def _extract_text_from_document(message: Message) -> str:
