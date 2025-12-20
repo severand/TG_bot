@@ -2,10 +2,16 @@
 
 Coordinates extraction of text from various file formats (PDF, DOCX, ZIP, Excel, DOC).
 Handles file routing to appropriate parser.
-AUTOMATIC .doc → .docx by simple renaming (both are ZIP-based Office formats).
+
+Fixes 2025-12-21 00:30:
+- CRITICAL: Old .doc IS BINARY, NOT ZIP!
+- Added proper detection: try as .docx first (ZIP), if fails = binary .doc
+- .doc files now handled by DOCXParser with binary fallback
+- Never route .doc to ZIP handler (that was the bug!)
+- DOCXParser now has improved binary extraction
 
 Fixes 2025-12-20 23:41:
-- ОЧЕНЬ ПРОСТО: .doc -> .docx это то же само
+- ОЧЕНЬ ПРОСТО: .doc -> .docx это то же самое
 - .doc это ZIP-архив с XML внутри
 - .docx это тоже ZIP-архив с XML
 - Просто переименовываем файл, и всё!
@@ -35,8 +41,9 @@ SUPPORTED_FORMATS = {".pdf", ".docx", ".txt", ".zip", ".doc", ".xlsx", ".xls"}
 class FileConverter:
     """Converter for extracting text from various file formats.
     
-    Supports: PDF, DOCX, TXT, ZIP archives, Excel (.xlsx, .xls)
-    Also supports old .doc files (simple rename to .docx - both are ZIP-based)
+    Supports: PDF, DOCX, TXT, ZIP archives, Excel (.xlsx, .xls), Old .doc
+    
+    IMPORTANT: Old .doc files are BINARY format (not ZIP like .docx).
     Delegates to specialized parsers for each format.
     """
     
@@ -66,12 +73,13 @@ class FileConverter:
         """Extract text from file.
         
         Routes to appropriate parser based on file format.
-        For ZIP files, extracts supported files and combines text.
-        For .doc files, renames to .docx (both are Office ZIP formats).
+        For .doc files: tries as ZIP first (newer hybrid format), 
+                       then falls back to binary (old MS Word format)
+        For ZIP files: extracts supported files and combines text.
         
         Args:
             file_path: Path to file
-            temp_dir: Directory for temporary files (required for ZIP and .doc rename)
+            temp_dir: Directory for temporary files (required for ZIP and .doc)
             
         Returns:
             str: Extracted text
@@ -98,25 +106,19 @@ class FileConverter:
         file_suffix = file_path.suffix.lower()
         
         try:
-            # SIMPLE: .doc → .docx это то же формат!
-            # Оба сноси ZIP-архивы с XML внутри
+            # Handle .doc files (can be ZIP-like or binary)
+            # CRITICAL: Old .doc is BINARY, not ZIP!
             if file_suffix == ".doc":
-                logger.info(f"Processing DOC: {file_path.name}")
+                logger.info(f"Processing .doc file: {file_path.name}")
                 if not temp_dir:
-                    raise ValueError("temp_dir required for .doc rename")
+                    raise ValueError("temp_dir required for .doc processing")
                 
-                # Просто переименовываем .doc в .docx
-                docx_path = self._rename_doc_to_docx(file_path, temp_dir)
-                if not docx_path:
-                    raise ValueError(
-                        "Failed to rename .doc file to .docx. "
-                        "Check file permissions."
-                    )
-                logger.info(f"Renamed to: {docx_path.name}")
-                file_path = docx_path
-                file_suffix = ".docx"
+                # Try to process directly with DOCX parser
+                # (it has ZIP try + binary fallback)
+                logger.info(f"Attempting to extract from .doc as {file_path.name}")
+                return self.docx_parser.extract_text(file_path)
             
-            # Обычная обработка
+            # Regular format routing
             if file_suffix == ".pdf":
                 logger.info(f"Processing PDF: {file_path.name}")
                 return self.pdf_parser.extract_text(file_path)
@@ -145,35 +147,6 @@ class FileConverter:
         except Exception as e:
             logger.error(f"Error extracting text from {file_path.name}: {e}")
             raise
-    
-    def _rename_doc_to_docx(self, doc_path: Path, temp_dir: Path) -> Optional[Path]:
-        """Rename .doc file to .docx (both are Office ZIP formats).
-        
-        .doc и .docx это одни и те же ZIP-архивы с XML внутри.
-        python-docx понимает оба формата.
-        
-        Args:
-            doc_path: Path to .doc file
-            temp_dir: Directory for output
-            
-        Returns:
-            Path to renamed .docx file, or None if rename failed
-        """
-        try:
-            docx_path = temp_dir / f"{doc_path.stem}.docx"
-            
-            logger.info(f"Renaming .doc to .docx: {doc_path.name} -> {docx_path.name}")
-            
-            # Просто копируем файл
-            shutil.copy2(doc_path, docx_path)
-            
-            size = docx_path.stat().st_size
-            logger.info(f"Rename successful: {docx_path.name} ({size} bytes)")
-            return docx_path
-        
-        except Exception as e:
-            logger.error(f"Rename error: {type(e).__name__}: {e}")
-            return None
     
     def _extract_text_file(self, file_path: Path) -> str:
         """Extract text from plain text file.
