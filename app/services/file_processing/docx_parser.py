@@ -1,5 +1,11 @@
 """DOCX file parser with robust error handling for old .doc files.
 
+Fixes 2025-12-21 00:35 - CRITICAL FIX:
+- Improved binary .doc extraction with better text detection
+- Better word boundary detection in old Word binary format
+- Extract more text from corrupted binary files
+- Better handling of MS Office OLE format
+
 Fixes 2025-12-20 23:55 - IMPROVED SOLUTION:
 - Try python-docx first (works for valid DOCX)
 - If fails = old .doc binary format, fallback to ZIP extraction
@@ -18,6 +24,7 @@ from zipfile import ZipFile, BadZipFile
 from xml.etree import ElementTree as ET
 from typing import Optional
 import re
+import struct
 
 try:
     from docx import Document
@@ -39,8 +46,9 @@ logger = logging.getLogger(__name__)
 class DOCXParser:
     """Parser for DOCX (Microsoft Word) documents.
     
-    Supports both valid DOCX files and old .doc files (renamed to .docx).
+    Supports both valid DOCX files and old .doc files.
     Uses python-docx for valid files, ZIP extraction fallback for corrupted.
+    Also handles pure binary old .doc files (not ZIP-based).
     Handles incomplete ZIP structures and corrupted XML gracefully.
     """
     
@@ -48,7 +56,7 @@ class DOCXParser:
         """Extract text from DOCX file.
         
         Extracts text from paragraphs and tables, preserving document structure.
-        Tries python-docx first, falls back to ZIP extraction for old .doc files.
+        Tries python-docx first, falls back to ZIP extraction, then binary.
         
         Args:
             file_path: Path to DOCX file
@@ -110,7 +118,7 @@ class DOCXParser:
             )
             logger.info(f"This might be an old .doc file, trying ZIP fallback...")
         
-        # Fallback: Extract directly from ZIP (for old .doc files renamed to .docx)
+        # Fallback 1: Extract directly from ZIP (for .docx-like .doc files)
         try:
             logger.info(f"Using ZIP fallback for {file_path.name}")
             result = self._extract_from_zip(file_path)
@@ -118,19 +126,33 @@ class DOCXParser:
                 logger.info(f"✓ ZIP fallback extracted {len(result)} chars")
                 return result
             else:
-                logger.warning(f"ZIP fallback extracted 0 chars, file might be empty or corrupted")
-                # Return empty string instead of raising, to show user file was processed
+                logger.warning(f"ZIP fallback extracted 0 chars, trying binary...")
+        
+        except Exception as e:
+            logger.warning(f"ZIP fallback failed: {type(e).__name__}: {str(e)[:100]}")
+            logger.info(f"File is likely pure binary .doc, trying binary extraction...")
+        
+        # Fallback 2: Extract from binary old .doc format
+        try:
+            logger.info(f"Using binary fallback for {file_path.name}")
+            result = self._extract_from_binary_doc(file_path)
+            if result.strip():
+                logger.info(f"✓ Binary fallback extracted {len(result)} chars")
+                return result
+            else:
+                logger.warning(f"Binary fallback extracted 0 chars - file may be empty or corrupted")
+                # Return empty instead of raising to show file was processed
                 return ""
         
         except Exception as e:
-            logger.error(f"ZIP fallback also failed: {type(e).__name__}: {e}")
-            raise ValueError(f"Invalid DOCX file: Cannot extract text using either method") from e
+            logger.error(f"Binary fallback also failed: {type(e).__name__}: {e}")
+            raise ValueError(f"Invalid DOCX/DOC file: Cannot extract text using any method") from e
     
     def _extract_from_zip(self, file_path: Path) -> str:
         """Extract text directly from DOCX ZIP archive.
         
         DOCX is a ZIP file containing document.xml which has the text.
-        For old .doc files renamed to .docx, this provides fallback extraction.
+        For .doc files with ZIP structure, this provides extraction.
         Also handles incomplete or corrupted ZIP structures.
         
         Args:
@@ -179,15 +201,7 @@ class DOCXParser:
         
         except BadZipFile as e:
             logger.error(f"Not a valid ZIP/DOCX file: {e}")
-            # Try to handle as old .doc binary format
-            logger.info(f"File might be old .doc binary format, attempting binary extraction")
-            try:
-                text = self._extract_from_binary_doc(file_path)
-                if text.strip():
-                    return text
-            except Exception as be:
-                logger.debug(f"Binary extraction failed: {be}")
-            raise ValueError(f"File is not a valid DOCX: {e}") from e
+            raise ValueError(f"File is not a valid DOCX (ZIP): {e}") from e
         
         except Exception as e:
             logger.error(f"ZIP extraction error: {type(e).__name__}: {e}")
@@ -247,8 +261,9 @@ class DOCXParser:
     def _extract_from_binary_doc(self, file_path: Path) -> str:
         """Try to extract text from binary .doc format.
         
-        Old MS Word .doc files are binary, not ZIP.
+        Old MS Word .doc files are binary (OLE format), not ZIP.
         This attempts to extract readable ASCII/UTF-8 strings.
+        Improved version with better word detection.
         
         Args:
             file_path: Path to .doc file
@@ -260,28 +275,148 @@ class DOCXParser:
             with open(file_path, 'rb') as f:
                 content = f.read()
             
-            # Look for null-separated strings (Word structure)
-            text_parts = []
-            current_word = b''
+            if not content:
+                logger.warning(f"File {file_path.name} is empty")
+                return ""
             
-            for byte in content:
-                if 32 <= byte <= 126 or byte in (9, 10, 13):  # ASCII printable + whitespace
-                    current_word += bytes([byte])
-                else:
-                    if len(current_word) > 3:  # Only keep words > 3 chars
-                        try:
-                            text_parts.append(current_word.decode('utf-8', errors='ignore'))
-                        except:
-                            pass
-                    current_word = b''
+            # Check if it's OLE format (MS Office binary)
+            is_ole = content[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
+            if is_ole:
+                logger.info(f"File appears to be OLE format (MS Office binary .doc)")
             
-            text = ' '.join(text_parts)
-            logger.info(f"Binary extraction found {len(text)} chars")
-            return text
+            # Strategy 1: Look for null-separated text blocks (common in MS Word)
+            text_parts = self._extract_text_from_null_blocks(content)
+            if text_parts:
+                text = ' '.join(text_parts)
+                if len(text) > 50:  # Only if we got substantial text
+                    logger.info(f"Found {len(text)} chars using null-block method")
+                    return text.strip()
+            
+            # Strategy 2: Look for continuous printable strings
+            text_parts = self._extract_continuous_strings(content)
+            if text_parts:
+                text = ' '.join(text_parts)
+                if len(text) > 50:
+                    logger.info(f"Found {len(text)} chars using continuous string method")
+                    return text.strip()
+            
+            # Strategy 3: Look for UTF-16 encoded text (Word uses this)
+            try:
+                text = self._extract_utf16_strings(content)
+                if text and len(text.strip()) > 50:
+                    logger.info(f"Found {len(text)} chars using UTF-16 method")
+                    return text.strip()
+            except:
+                pass
+            
+            logger.warning(f"Binary extraction found <50 chars - file might be empty or very corrupted")
+            return ""
         
         except Exception as e:
-            logger.error(f"Binary extraction failed: {e}")
+            logger.error(f"Binary extraction failed: {type(e).__name__}: {e}")
             return ""
+    
+    def _extract_text_from_null_blocks(self, content: bytes) -> list[str]:
+        """Extract text from null-separated blocks in binary data.
+        
+        MS Word stores text in 2-byte blocks separated by nulls.
+        """
+        text_parts = []
+        current_word = b''
+        
+        i = 0
+        while i < len(content):
+            byte = content[i]
+            
+            # Printable ASCII
+            if 32 <= byte <= 126:  # ASCII printable
+                current_word += bytes([byte])
+            # Whitespace
+            elif byte in (9, 10, 13, 0):  # tab, newline, carriage return, null
+                if len(current_word) > 2:
+                    try:
+                        word = current_word.decode('ascii', errors='ignore').strip()
+                        if word and len(word) > 1:
+                            text_parts.append(word)
+                    except:
+                        pass
+                current_word = b''
+            else:
+                current_word = b''
+            
+            i += 1
+        
+        return text_parts
+    
+    def _extract_continuous_strings(self, content: bytes, min_len: int = 4) -> list[str]:
+        """Extract continuous printable strings from binary data.
+        
+        Args:
+            content: Binary content
+            min_len: Minimum string length to consider
+            
+        Returns:
+            List of strings found
+        """
+        strings = []
+        current = b''
+        
+        for byte in content:
+            if 32 <= byte <= 126:  # Printable ASCII
+                current += bytes([byte])
+            else:
+                if len(current) >= min_len:
+                    try:
+                        s = current.decode('ascii', errors='ignore').strip()
+                        if s:
+                            strings.append(s)
+                    except:
+                        pass
+                current = b''
+        
+        # Don't forget the last one
+        if len(current) >= min_len:
+            try:
+                s = current.decode('ascii', errors='ignore').strip()
+                if s:
+                    strings.append(s)
+            except:
+                pass
+        
+        return strings
+    
+    def _extract_utf16_strings(self, content: bytes) -> str:
+        """Extract UTF-16 encoded strings (common in modern .doc files).
+        
+        Args:
+            content: Binary content
+            
+        Returns:
+            Extracted text
+        """
+        text_parts = []
+        
+        # Look for UTF-16 patterns
+        try:
+            # Try UTF-16 LE (little-endian, common in Windows)
+            decoded = content.decode('utf-16-le', errors='ignore')
+            # Extract words (remove non-printable)
+            words = re.findall(r'[\w\s]{2,}', decoded)
+            if words:
+                return ' '.join(words).strip()
+        except:
+            pass
+        
+        try:
+            # Try UTF-16 BE (big-endian)
+            decoded = content.decode('utf-16-be', errors='ignore')
+            words = re.findall(r'[\w\s]{2,}', decoded)
+            if words:
+                return ' '.join(words).strip()
+        except:
+            pass
+        
+        return ""
     
     @staticmethod
     def _extract_plain_text_from_corrupted_xml(xml_content: str) -> str:
