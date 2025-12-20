@@ -22,6 +22,7 @@ async def setup_bot_commands(bot: Bot) -> None:
         BotCommand(command="start", description="👋 Запустить бота"),
         BotCommand(command="chat", description="💬 Режим диалога"),
         BotCommand(command="analyze", description="📊 Анализ документов"),
+        BotCommand(command="homework", description="📚 Проверка домашки"),
         BotCommand(command="prompts", description="🎯 Управление промптами"),
         BotCommand(command="help", description="❓ Справка"),
     ]
