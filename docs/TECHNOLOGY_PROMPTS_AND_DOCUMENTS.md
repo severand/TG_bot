@@ -249,6 +249,8 @@ text = converter.extract_text(file_path, temp_dir)
 | ZIP | zipfile | Рекурсивная обработка |
 
 ### 🌐 OCR (Optical Character Recognition)
+https://ocr.space/OCRAPI/confirmation
+логин - severand2303@yandex.ru
 
 **Провайдер:** OCR.space  
 **API Key:** `OCR_SPACE_API_KEY` (в .env)  
