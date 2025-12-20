@@ -1,5 +1,10 @@
 """Conversation mode handlers for interactive document analysis.
 
+Fixes 2025-12-20 21:05:
+- Убрано навязчивое сообщение "Хотите отредактировать промпт?" после анализа
+- Теперь выводится только результат анализа без дополнительных напоминаний
+- Логику обработки и состояния НЕ менял, только тексты
+
 Fixes 2025-12-20 19:30:
 - Добавлены подсказки о редактировании промптов
 - Каждое сообщение указывает: "/prompts > Документы > [название] > Редактировать"
@@ -499,12 +504,8 @@ async def _perform_analysis(
                     parse_mode="Markdown",
                 )
         
-        # Add footer with edit info
-        footer = (
-            f"\n\n✏️ *Хотите отредактировать промпт '{selected_prompt_name}'?*\n"
-            f"`/prompts` → Документы → `{selected_prompt_name}` → Редактировать"
-        )
-        await message.answer(footer, parse_mode="Markdown")
+        # УБРАНО: дополнительное навязчивое сообщение про редактирование промпта
+        # Пользователь получает только результат анализа
         
         # Delete progress message after results sent
         if status_msg:
