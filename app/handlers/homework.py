@@ -1,8 +1,8 @@
 """Homework checking handler.
 
 Fixes 2025-12-20:
-- Implemented pytesseract OCR for automatic photo text extraction
-- Removed caption requirement - photos are processed automatically
+- Uses TESSERACT_PATH from config for Windows compatibility
+- Automatic photo text extraction with pytesseract OCR
 - All responses in Russian
 
 Handles /homework command for checking student homework.
@@ -11,6 +11,7 @@ Handles /homework command for checking student homework.
 import logging
 from typing import Optional
 from pathlib import Path
+import os
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
@@ -243,12 +244,19 @@ async def _extract_text_from_photo(message: Message) -> str:
         import pytesseract
         from PIL import Image
         
+        # Set tesseract path from config
+        settings = get_settings()
+        if os.path.exists(settings.TESSERACT_PATH):
+            pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_PATH
+            logger.info(f"Using Tesseract at: {settings.TESSERACT_PATH}")
+        else:
+            logger.warning(f"Tesseract not found at: {settings.TESSERACT_PATH}")
+        
         # Get largest photo
         photo = message.photo[-1]
         file_info = await message.bot.get_file(photo.file_id)
         
         # Download photo
-        settings = get_settings()
         temp_dir = Path(settings.TEMP_DIR)
         temp_dir.mkdir(exist_ok=True)
         
