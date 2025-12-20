@@ -5,6 +5,9 @@ Fixes 2025-12-20:
 - Photo upload: no 'photo ready' confirmation, only progress message
 - Progress message auto-deleted after analysis results sent
 - Logging order fixed: photo loaded log before analysis (not after)
+- OCR extraction: Added detailed step-by-step logging for silent failures
+- OCR timeout: Increased to 60s, added connection timeout
+- OCR validation: Check response structure before parsing
 
 Users now select prompt TYPE BEFORE uploading document.
 Workflow: /analyze -> Select prompt -> Upload document -> Analyze
@@ -523,59 +526,100 @@ async def _extract_text_from_photo_for_analysis(
         import httpx
         import base64
         
+        logger.info(f"OCR: Starting extraction for user {message.from_user.id}")
+        
         # Get largest photo
+        if not message.photo:
+            logger.warning("OCR: No photo found in message")
+            return ""
+        
         photo = message.photo[-1]
+        logger.info(f"OCR: Got photo {photo.file_id}, size: {photo.file_size} bytes")
+        
+        # Get file info
         file_info = await message.bot.get_file(photo.file_id)
+        logger.info(f"OCR: File path: {file_info.file_path}")
         
         # Download photo
         temp_file = temp_dir / f"photo_{photo.file_unique_id}.jpg"
+        logger.info(f"OCR: Downloading to {temp_file}")
         await message.bot.download_file(file_info.file_path, temp_file)
+        logger.info(f"OCR: Downloaded successfully, size: {temp_file.stat().st_size} bytes")
         
         # Read photo as base64
         with open(temp_file, "rb") as f:
             photo_bytes = f.read()
+        logger.info(f"OCR: Read {len(photo_bytes)} bytes from file")
         
         photo_base64 = base64.b64encode(photo_bytes).decode("utf-8")
+        logger.info(f"OCR: Encoded to base64, size: {len(photo_base64)} chars")
         
-        # Call OCR.space API
+        # Prepare API payload
+        api_key = config.OCR_SPACE_API_KEY
+        if not api_key:
+            logger.error("OCR: OCR_SPACE_API_KEY not configured")
+            return ""
+        
+        payload = {
+            "apikey": api_key,
+            "base64Image": f"data:image/jpeg;base64,{photo_base64}",
+            "language": "rus",
+            "isOverlayRequired": False,
+            "detectOrientation": True,
+            "scale": True,
+            "OCREngine": 2,
+        }
+        logger.info(f"OCR: Prepared payload, base64 size: {len(payload['base64Image'])} chars")
+        
+        # Call OCR.space API with proper timeouts
+        logger.info("OCR: Calling OCR.space API...")
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 "https://api.ocr.space/parse/image",
-                data={
-                    "apikey": config.OCR_SPACE_API_KEY,
-                    "base64Image": f"data:image/jpeg;base64,{photo_base64}",
-                    "language": "rus",  # Russian
-                    "isOverlayRequired": False,
-                    "detectOrientation": True,
-                    "scale": True,
-                    "OCREngine": 2,  # Engine 2 for better accuracy
-                },
-                timeout=30.0,
+                data=payload,
+                timeout=httpx.Timeout(60.0, connect=30.0),  # 60s total, 30s connect
             )
             
+            logger.info(f"OCR: Got response status {response.status_code}")
+            
             if response.status_code != 200:
-                logger.error(f"OCR.space API error: {response.status_code} {response.text}")
+                logger.error(f"OCR: API error {response.status_code}: {response.text[:200]}")
                 return ""
             
-            result = response.json()
+            # Parse response
+            try:
+                result = response.json()
+            except Exception as e:
+                logger.error(f"OCR: Failed to parse JSON response: {e}")
+                logger.error(f"OCR: Response text: {response.text[:500]}")
+                return ""
             
+            logger.info(f"OCR: Response keys: {result.keys()}")
+            
+            # Check for processing errors
             if result.get("IsErroredOnProcessing"):
-                error_msg = result.get("ErrorMessage", ["Unknown error"])
-                logger.error(f"OCR processing error: {error_msg}")
+                error_msg = result.get("ErrorMessage", "Unknown error")
+                logger.error(f"OCR: Processing error: {error_msg}")
                 return ""
             
-            # Extract text from all parsed results
+            # Extract text from parsed results
             parsed_results = result.get("ParsedResults", [])
             if not parsed_results:
-                logger.warning("No text detected in image")
+                logger.warning("OCR: No parsed results in response")
+                logger.info(f"OCR: Full response: {result}")
                 return ""
             
             text = parsed_results[0].get("ParsedText", "")
-            logger.info(f"OCR: Extracted {len(text)} chars from photo")
+            logger.info(f"OCR: Successfully extracted {len(text)} chars from photo")
             return text.strip()
     
+    except asyncio.TimeoutError:
+        logger.error("OCR: Request timeout (60s exceeded)")
+        return ""
     except Exception as e:
-        logger.error(f"Failed to extract text from photo via OCR: {e}")
+        logger.error(f"OCR: Exception during extraction: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(f"OCR: Traceback:\n{traceback.format_exc()}")
         return ""
 
 
