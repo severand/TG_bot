@@ -1,8 +1,9 @@
 """Homework checking handler.
 
 Fixes 2025-12-20:
-- Uses TESSERACT_PATH from config for Windows compatibility
-- Automatic photo text extraction with pytesseract OCR
+- Uses OCR.space cloud API (NO installation required!)
+- Free 25,000 requests/month
+- Automatic photo text extraction
 - All responses in Russian
 
 Handles /homework command for checking student homework.
@@ -11,7 +12,7 @@ Handles /homework command for checking student homework.
 import logging
 from typing import Optional
 from pathlib import Path
-import os
+import base64
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
@@ -208,7 +209,7 @@ async def _extract_content(message: Message) -> str:
     Handles:
     - Text messages (direct text)
     - PDF/DOCX files (extract text via parsers)
-    - Photos (OCR with pytesseract)
+    - Photos (OCR with OCR.space API)
     
     Args:
         message: Message with file or text
@@ -220,7 +221,7 @@ async def _extract_content(message: Message) -> str:
     if message.text:
         return message.text
     
-    # Handle photo - use Tesseract OCR
+    # Handle photo - use OCR.space API
     if message.photo:
         return await _extract_text_from_photo(message)
     
@@ -232,7 +233,10 @@ async def _extract_content(message: Message) -> str:
 
 
 async def _extract_text_from_photo(message: Message) -> str:
-    """Extract text from photo using Tesseract OCR.
+    """Extract text from photo using OCR.space cloud API.
+    
+    Uses free OCR.space API (25k requests/month).
+    No installation required!
     
     Args:
         message: Message with photo
@@ -241,16 +245,9 @@ async def _extract_text_from_photo(message: Message) -> str:
         Extracted text from photo
     """
     try:
-        import pytesseract
-        from PIL import Image
+        import httpx
         
-        # Set tesseract path from config
         settings = get_settings()
-        if os.path.exists(settings.TESSERACT_PATH):
-            pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_PATH
-            logger.info(f"Using Tesseract at: {settings.TESSERACT_PATH}")
-        else:
-            logger.warning(f"Tesseract not found at: {settings.TESSERACT_PATH}")
         
         # Get largest photo
         photo = message.photo[-1]
@@ -264,27 +261,54 @@ async def _extract_text_from_photo(message: Message) -> str:
         await message.bot.download_file(file_info.file_path, temp_file)
         
         try:
-            # Open image
-            image = Image.open(temp_file)
+            # Read photo as base64
+            with open(temp_file, "rb") as f:
+                photo_bytes = f.read()
             
-            # Extract text using Tesseract with Russian language
-            text = pytesseract.image_to_string(
-                image,
-                lang='rus+eng',  # Russian + English
-                config='--psm 6'  # Assume uniform block of text
-            )
+            photo_base64 = base64.b64encode(photo_bytes).decode("utf-8")
             
-            logger.info(f"OCR: Extracted {len(text)} chars from photo")
-            return text.strip()
+            # Call OCR.space API
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://api.ocr.space/parse/image",
+                    data={
+                        "apikey": settings.OCR_SPACE_API_KEY,
+                        "base64Image": f"data:image/jpeg;base64,{photo_base64}",
+                        "language": "rus",  # Russian
+                        "isOverlayRequired": False,
+                        "detectOrientation": True,
+                        "scale": True,
+                        "OCREngine": 2,  # Engine 2 for better accuracy
+                    },
+                    timeout=30.0,
+                )
+                
+                if response.status_code != 200:
+                    logger.error(f"OCR.space API error: {response.status_code} {response.text}")
+                    return ""
+                
+                result = response.json()
+                
+                if result.get("IsErroredOnProcessing"):
+                    error_msg = result.get("ErrorMessage", ["Unknown error"])
+                    logger.error(f"OCR processing error: {error_msg}")
+                    return ""
+                
+                # Extract text from all parsed results
+                parsed_results = result.get("ParsedResults", [])
+                if not parsed_results:
+                    logger.warning("No text detected in image")
+                    return ""
+                
+                text = parsed_results[0].get("ParsedText", "")
+                logger.info(f"OCR: Extracted {len(text)} chars from photo")
+                return text.strip()
         
         finally:
             # Clean up
             if temp_file.exists():
                 temp_file.unlink()
     
-    except ImportError:
-        logger.error("pytesseract not installed. Install: pip install pytesseract")
-        return ""
     except Exception as e:
         logger.error(f"Failed to extract text from photo via OCR: {e}")
         return ""
