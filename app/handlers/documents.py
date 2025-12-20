@@ -131,10 +131,18 @@ async def handle_document(
             f"🤖 Analyzing with {config.LLM_PROVIDER} AI..."
         )
         
+        # Create analysis prompt with explicit Russian requirement
+        analysis_prompt = (
+            "Проанализируй этот документ и предоставь ключевые выводы.\n"
+            "ОТВЕТ ДОЛЖЕН БЫТЬ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ!\n"
+            "Структурируй ответ четко с заголовками и пунктами.\n\n"
+            "Документ для анализа:"
+        )
+        
         try:
             analysis_result = await llm_factory.analyze_document(
                 extracted_text,
-                "Analyze this document and provide key insights:",
+                analysis_prompt,
                 use_streaming=False,
             )
         
@@ -160,7 +168,7 @@ async def handle_document(
                 try:
                     analysis_result = await llm_factory.analyze_document(
                         extracted_text,
-                        "Analyze this document and provide key insights:",
+                        analysis_prompt,
                         use_streaming=False,
                     )
                 except Exception as e2:
