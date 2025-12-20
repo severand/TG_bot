@@ -1,15 +1,12 @@
 """Управление промптами.
 
-Исправление 2025-12-20 17:44:
-- Переведены ВСЕ кнопки на русский язык
-- Переведены ВСЕ сообщения пользователю на русский
-- Переведены ВСЕ комментарии в коде на русский
-- Переведены ВСЕ логи на русский
+Исправление 2025-12-20 17:52:
+- Кнопки теперь во всю ширину экрана (adjust(1) вместо adjust(2))
+- Исправлена ошибка markdown parsing при сохранении
+- Текст ответа сохранения теперь без маркдаун (parse_mode=None)
 
-Исправление 2025-12-20 17:32:
-- Исправлено отображение эмоджи
-- Заголовки показывают название предмета
-- Кнопка "Отмена" ведет в опции редактирования
+Исправление 2025-12-20 17:44:
+- Переведены ВСЕ кнопки, сообщения, комментарии, логи на русский
 
 Обрабатывает взаимодействия пользователя для управления системными промптами.
 Включает навигацию и редактирование существующих промптов.
@@ -30,22 +27,6 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 prompt_manager = PromptManager()
-
-
-def escape_markdown(text: str) -> str:
-    """Экранирование спецсимволов markdown.
-    
-    Args:
-        text: Текст для экранирования
-        
-    Returns:
-        str: Экранированный текст
-    """
-    # Экранируем спецсимволы markdown
-    special_chars = ['*', '_', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    for char in special_chars:
-        text = text.replace(char, f'\\{char}')
-    return text
 
 
 def get_subject_display_name(prompt_name: str) -> str:
@@ -81,13 +62,13 @@ def get_subject_display_name(prompt_name: str) -> str:
 
 # Клавиатуры навигации
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
-    """Главное меню управления промптами."""
+    """Главное меню управления промптами - Кнопки во всю ширину."""
     builder = InlineKeyboardBuilder()
     builder.button(text="📄 Документы", callback_data="prompts_category_document_analysis")
     builder.button(text="💬 Диалог", callback_data="prompts_category_chat")
     builder.button(text="📖 Домашка", callback_data="prompts_category_homework")
     builder.button(text="« Назад", callback_data="back_to_main")
-    builder.adjust(2)
+    builder.adjust(1)  # Во всю ширину!
     return builder.as_markup()
 
 
@@ -107,7 +88,7 @@ def get_category_keyboard(user_id: int, category: str) -> InlineKeyboardMarkup:
         )
     
     builder.button(text="« Назад", callback_data="prompts_menu")
-    builder.adjust(2)
+    builder.adjust(1)  # Во всю ширину!
     return builder.as_markup()
 
 
@@ -116,7 +97,7 @@ def get_prompt_detail_keyboard(prompt_name: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="✏️ Редактировать", callback_data=f"prompt_edit_{prompt_name}")
     builder.button(text="« Назад", callback_data="prompts_menu")
-    builder.adjust(2)
+    builder.adjust(1)  # Во всю ширину!
     return builder.as_markup()
 
 
@@ -236,7 +217,7 @@ async def cb_prompts_category(query: CallbackQuery) -> None:
         reply_markup=get_category_keyboard(user_id, category),
     )
     await query.answer()
-    logger.info(f"Пользователь {user_id} режим на категории: {category}")
+    logger.info(f"Пользователь {user_id} на категории: {category}")
 
 
 @router.callback_query(F.data.startswith("prompt_select_"))
@@ -260,9 +241,9 @@ async def cb_prompt_select(query: CallbackQuery) -> None:
     # Получаем название
     subject_name = get_subject_display_name(prompt_name)
     
-    # Экранируем markdown
-    system_escaped = escape_markdown(prompt.system_prompt[:200])
-    user_escaped = escape_markdown(prompt.user_prompt_template[:200])
+    # НЕ экранируем - отображаем как есть
+    system_text = prompt.system_prompt[:200]
+    user_text = prompt.user_prompt_template[:200]
     
     # Ток либо свой, либо системный
     type_badge = "👤 Ваш" if is_custom else "🤖 Системный"
@@ -271,8 +252,8 @@ async def cb_prompt_select(query: CallbackQuery) -> None:
         f"🎯 *{subject_name}*\n"
         f"{type_badge}\n"
         f"_{prompt.description}_\n\n"
-        f"*Системный промпт:*\n`{system_escaped}...`\n\n"
-        f"*Шаблон:*\n`{user_escaped}...`\n\n"
+        f"*Системный промпт:*\n`{system_text}...`\n\n"
+        f"*Шаблон:*\n`{user_text}...`\n\n"
         f"👇 Что сделать?"
     )
     
@@ -282,7 +263,7 @@ async def cb_prompt_select(query: CallbackQuery) -> None:
         reply_markup=get_prompt_detail_keyboard(prompt_name),
     )
     await query.answer()
-    logger.info(f"Пользователь {user_id} режим на деталях: {prompt_name}")
+    logger.info(f"Пользователь {user_id} на деталях: {prompt_name}")
 
 
 @router.callback_query(F.data.startswith("prompt_edit_"))
@@ -337,6 +318,7 @@ async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
             text="❌ Отмена",
             callback_data=f"prompt_edit_{prompt_name}"
         )
+        builder.adjust(1)  # Во всю ширину!
         
         await query.message.edit_text(
             text,
@@ -358,7 +340,7 @@ async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
             text="« Назад",
             callback_data=f"prompt_select_{prompt_name}"
         )
-        builder.adjust(2)
+        builder.adjust(1)  # Во всю ширину!
         
         # Получаем название
         subject_name = get_subject_display_name(prompt_name)
@@ -399,11 +381,14 @@ async def msg_edit_system(message: Message, state: FSMContext) -> None:
         system_prompt=new_system,
     )
     
-    # Экранируем
-    display_text = escape_markdown(new_system[:100])
-    
     # Получаем название
     subject_name = get_subject_display_name(prompt_name)
+    
+    # Окраживаем двужные символы для текста
+    display_text = new_system[:100]
+    # Удаляем `` квадратные скобки чтобы не сломать markdown
+    display_text = display_text.replace("[", "").replace("]", "")
+    display_text = display_text.replace("*", "")
     
     # Кнопка возврата в опции редактирования
     builder = InlineKeyboardBuilder()
@@ -411,12 +396,13 @@ async def msg_edit_system(message: Message, state: FSMContext) -> None:
         text="« Назад в опции редактирования",
         callback_data=f"prompt_edit_{prompt_name}"
     )
+    builder.adjust(1)  # Во всю ширину!
     
     await message.answer(
-        f"✅ *Охранено!*\n\n"
+        f"✅ Охранено!\n\n"
         f"Обновлено: {subject_name}\n"
         f"Текст: {display_text}...",
-        parse_mode="Markdown",
+        parse_mode=None,  # без markdown!
         reply_markup=builder.as_markup(),
     )
     await state.clear()
@@ -444,11 +430,14 @@ async def msg_edit_user(message: Message, state: FSMContext) -> None:
         user_prompt_template=new_user,
     )
     
-    # Экранируем
-    display_text = escape_markdown(new_user[:100])
-    
     # Получаем название
     subject_name = get_subject_display_name(prompt_name)
+    
+    # Окраживаем двужные символы для текста
+    display_text = new_user[:100]
+    # Удаляем `` квадратные скобки чтобы не сломать markdown
+    display_text = display_text.replace("[", "").replace("]", "")
+    display_text = display_text.replace("*", "")
     
     # Кнопка возврата в опции редактирования
     builder = InlineKeyboardBuilder()
@@ -456,12 +445,13 @@ async def msg_edit_user(message: Message, state: FSMContext) -> None:
         text="« Назад в опции редактирования",
         callback_data=f"prompt_edit_{prompt_name}"
     )
+    builder.adjust(1)  # Во всю ширину!
     
     await message.answer(
-        f"✅ *Охранено!*\n\n"
+        f"✅ Охранено!\n\n"
         f"Обновлено: {subject_name}\n"
         f"Текст: {display_text}...",
-        parse_mode="Markdown",
+        parse_mode=None,  # без markdown!
         reply_markup=builder.as_markup(),
     )
     await state.clear()
