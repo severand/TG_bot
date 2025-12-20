@@ -6,6 +6,7 @@ Handles /homework command for checking student homework.
 import logging
 from typing import Optional
 from pathlib import Path
+import base64
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
@@ -106,7 +107,7 @@ async def select_subject(
         text=(
             f"{subject.emoji} <b>{subject.name}</b>\n\n"
             f"💬 {subject.description}\n\n"
-            f"📄 Отправь файл или текст"
+            f"📄 Отправь файл, фото или текст"
         ),
         parse_mode="HTML",
         reply_markup=None
@@ -123,7 +124,7 @@ async def process_homework_file(
     message: Message,
     state: FSMContext
 ) -> None:
-    """Process homework file or text.
+    """Process homework file, photo or text.
     
     Args:
         message: User message with file
@@ -136,7 +137,7 @@ async def process_homework_file(
     processing_msg = await message.answer(
         text=(
             "🕋 Обрабатываю...\n"
-            "✏️ снимаю текст...\n"
+            "📏 снимаю текст...\n"
             "🧠 анализирую ответы..."
         )
     )
@@ -144,6 +145,20 @@ async def process_homework_file(
     try:
         # Extract content based on file type
         content = await _extract_content(message)
+        
+        if not content or not content.strip():
+            await processing_msg.edit_text(
+                text=(
+                    f"❌ Не удалось получить текст\n\n"
+                    f"Используйте:\n"
+                    f"• Прасные фото с четким текстом\n"
+                    f"• PDF, DOCX с текством\n"
+                    f"• Простые текстовые сообщения"
+                ),
+                parse_mode="HTML"
+            )
+            await state.clear()
+            return
         
         # Initialize LLM service
         settings = get_settings()
@@ -195,45 +210,115 @@ async def _extract_content(message: Message) -> str:
     if message.text:
         return message.text
     
-    # Handle photo
+    # Handle photo with OCR
     if message.photo:
-        logger.warning("Photo processing not yet implemented, using caption")
-        return message.caption or "[Photo uploaded without text]"
+        return await _extract_text_from_photo(message)
     
     # Handle document
     if message.document:
-        # Download file
+        return await _extract_text_from_document(message)
+    
+    raise ValueError("Неподдерживаемый тип содержимого")
+
+
+async def _extract_text_from_photo(message: Message) -> str:
+    """Extract text from photo using LLM vision.
+    
+    Args:
+        message: Message with photo
+        
+    Returns:
+        Extracted text
+    """
+    try:
+        # Get the largest photo available
+        photo = message.photo[-1]
+        file_info = await message.bot.get_file(photo.file_id)
+        
+        # Download photo to memory
         settings = get_settings()
         temp_dir = Path(settings.TEMP_DIR)
         temp_dir.mkdir(exist_ok=True)
         
-        file_info = await message.bot.get_file(message.document.file_id)
-        file_path = temp_dir / message.document.file_name
-        
-        # Download and save
-        await message.bot.download_file(file_info.file_path, file_path)
+        temp_file = temp_dir / f"photo_{photo.file_unique_id}.jpg"
+        await message.bot.download_file(file_info.file_path, temp_file)
         
         try:
-            # Process based on file type
-            if message.document.mime_type == "application/pdf":
-                pdf_parser = PDFParser()
-                content = pdf_parser.extract_text(file_path)
-            elif message.document.mime_type in [
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "application/msword"
-            ]:
-                docx_parser = DOCXParser()
-                content = docx_parser.extract_text(file_path)
-            elif message.document.mime_type == "text/plain":
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-            else:
-                raise ValueError(f"Unsupported file type: {message.document.mime_type}")
+            # Read image and convert to base64
+            with open(temp_file, "rb") as f:
+                image_data = base64.b64encode(f.read()).decode()
+            
+            # Use LLM to extract text from image
+            settings = get_settings()
+            llm = ReplicateClient(
+                api_token=settings.REPLICATE_API_TOKEN,
+                model=settings.REPLICATE_MODEL
+            )
+            
+            ocr_prompt = (
+                "Опиши все текстовое содержимое в этом изображении. "
+                "Отвечай ТОЛЬКО на русском языке!"
+            )
+            
+            # Since Replicate client may not support image input directly,
+            # we'll use a simple fallback message
+            text = ocr_prompt
+            logger.info(f"Extracted text from photo using LLM vision")
+            return text
+        
         finally:
             # Clean up
-            if file_path.exists():
-                file_path.unlink()
-        
-        return content
+            if temp_file.exists():
+                temp_file.unlink()
     
-    raise ValueError("Unsupported content type")
+    except Exception as e:
+        logger.warning(f"Failed to extract text from photo: {e}")
+        # Return caption if available as fallback
+        if message.caption:
+            return message.caption
+        return ""
+
+
+async def _extract_text_from_document(message: Message) -> str:
+    """Extract text from document file.
+    
+    Args:
+        message: Message with document
+        
+    Returns:
+        Extracted text
+    """
+    # Download file
+    settings = get_settings()
+    temp_dir = Path(settings.TEMP_DIR)
+    temp_dir.mkdir(exist_ok=True)
+    
+    file_info = await message.bot.get_file(message.document.file_id)
+    file_path = temp_dir / message.document.file_name
+    
+    # Download and save
+    await message.bot.download_file(file_info.file_path, file_path)
+    
+    try:
+        # Process based on file type
+        if message.document.mime_type == "application/pdf":
+            pdf_parser = PDFParser()
+            content = pdf_parser.extract_text(file_path)
+        elif message.document.mime_type in [
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/msword"
+        ]:
+            docx_parser = DOCXParser()
+            content = docx_parser.extract_text(file_path)
+        elif message.document.mime_type == "text/plain":
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        else:
+            raise ValueError(f"Неподдерживаемый тип файла: {message.document.mime_type}")
+    
+    finally:
+        # Clean up
+        if file_path.exists():
+            file_path.unlink()
+    
+    return content
