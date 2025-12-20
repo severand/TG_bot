@@ -1,5 +1,10 @@
 """Управление промптами.
 
+Исправление 2025-12-20 19:47:
+- При нажатии "Отмена" из редактора -> явный переход в /chat
+- Кнопка "Отмена" из состояния редактирования теперь активирует чат-режим
+- Защита: состояние очищается перед установкой нового
+
 Исправление 2025-12-20 17:56:
 - Вернен оргинальный adjust(2) - 2 кнопки в ряду
 - Кнопки автоматически расширяются на всю расположенную ширину
@@ -22,6 +27,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.services.prompts.prompt_manager import PromptManager
 from app.states.prompts import PromptStates
+from app.states.chat import ChatStates
 
 logger = logging.getLogger(__name__)
 
@@ -312,11 +318,11 @@ async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
                 f"Внесите новый текст для шаблона:"
             )
         
-        # Кнопка отмены
+        # Кнопка отмены -> переход в чат (FIX: была "Назад в редактор")
         builder = InlineKeyboardBuilder()
         builder.button(
-            text="❌ Отмена",
-            callback_data=f"prompt_edit_{prompt_name}"
+            text="❌ Отмена -> Диалог",
+            callback_data="cancel_edit_go_to_chat"
         )
         builder.adjust(2)  # По 2 кнопки
         
@@ -358,6 +364,42 @@ async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
     
     await query.answer()
     logger.info(f"Пользователь {query.from_user.id} начал редактирование: {prompt_name}")
+
+
+@router.callback_query(F.data == "cancel_edit_go_to_chat")
+async def cb_cancel_edit_go_to_chat(query: CallbackQuery, state: FSMContext) -> None:
+    """Отмена редактирования и явный переход в режим чата.\n    
+    КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2025-12-20 19:47:
+    - Сначала ПОЛНАЯ очистка состояния
+    - Затем установка ChatStates.chatting
+    - Затем удаление сообщения редактора и активация чата
+    """
+    user_id = query.from_user.id
+    
+    # Шаг 1: ПОЛНАЯ очистка состояния - убираем ВСЕ старые флаги
+    await state.clear()
+    logger.debug(f"State cleared for user {user_id}")
+    
+    # Шаг 2: Установка состояния чата
+    await state.set_state(ChatStates.chatting)
+    logger.debug(f"Set ChatStates.chatting for user {user_id}")
+    
+    # Шаг 3: Удаляем старое сообщение редактора
+    await query.message.delete()
+    
+    # Шаг 4: Отправляем активационное сообщение чата
+    text = (
+        "💬 *Режим диалога активен*\n\n"
+        "Пишите мне свои вопросы, я готов помочь!"
+    )
+    
+    await query.message.answer(
+        text,
+        parse_mode="Markdown",
+    )
+    
+    await query.answer()
+    logger.info(f"User {user_id} cancelled editing and returned to chat mode")
 
 
 @router.message(PromptStates.editing_system)
