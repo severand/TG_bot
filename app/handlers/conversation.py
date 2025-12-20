@@ -4,6 +4,7 @@ Fixes 2025-12-20:
 - Prompt selection keyboard: 2 buttons per row for better layout
 - Photo upload: no 'photo ready' confirmation, only progress message
 - Progress message auto-deleted after analysis results sent
+- Logging order fixed: photo loaded log before analysis (not after)
 
 Users now select prompt TYPE BEFORE uploading document.
 Workflow: /analyze -> Select prompt -> Upload document -> Analyze
@@ -283,6 +284,12 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         selected_prompt_name = data.get("selected_prompt_name", "default")
         
+        # Log BEFORE analysis starts
+        logger.info(
+            f"Document loaded for user {message.from_user.id}: "
+            f"{len(extracted_text)} chars with prompt '{selected_prompt_name}'"
+        )
+        
         # Update status message with analysis start
         await status_msg.edit_text(
             f"⏳ Анализирую с промптом '{selected_prompt_name}'...\n"
@@ -291,11 +298,6 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         
         # Immediately start analysis with selected prompt
         await _perform_analysis(message, state, data, status_msg)
-        
-        logger.info(
-            f"Document loaded for user {message.from_user.id}: "
-            f"{len(extracted_text)} chars with prompt '{selected_prompt_name}'"
-        )
     
     except Exception as e:
         logger.error(f"Error processing document: {e}")
@@ -303,7 +305,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         await status_msg.delete()
     
     finally:
-        if temp_user_dir and not temp_user_dir.exists():
+        if temp_user_dir and temp_user_dir.exists():
             await CleanupManager.cleanup_directory_async(temp_user_dir)
 
 
@@ -362,6 +364,12 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         selected_prompt_name = data.get("selected_prompt_name", "default")
         
+        # Log BEFORE analysis starts - FIXED ORDER
+        logger.info(
+            f"Photo loaded for user {message.from_user.id}: "
+            f"{len(extracted_text)} chars with prompt '{selected_prompt_name}'"
+        )
+        
         # Update status message with analysis start - NO "photo ready" message
         await status_msg.edit_text(
             f"⏳ Анализирую с промптом '{selected_prompt_name}'...\n"
@@ -370,11 +378,6 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         
         # Immediately start analysis with selected prompt
         await _perform_analysis(message, state, data, status_msg)
-        
-        logger.info(
-            f"Photo loaded for user {message.from_user.id}: "
-            f"{len(extracted_text)} chars with prompt '{selected_prompt_name}'"
-        )
     
     except Exception as e:
         logger.error(f"Error processing photo: {e}")
@@ -382,7 +385,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         await status_msg.delete()
     
     finally:
-        if temp_user_dir and not temp_user_dir.exists():
+        if temp_user_dir and temp_user_dir.exists():
             await CleanupManager.cleanup_directory_async(temp_user_dir)
 
 
