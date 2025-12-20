@@ -1,5 +1,10 @@
 """Homework checking handler.
 
+Fixes 2025-12-20 19:02:
+- Добавлена проверка состояния ПЕРЕД обработкой файла
+- Предотвращается обработка сообщения если не в HomeworkStates.waiting_for_file
+- Улучшено копиование в логи информации о состояниях
+
 Fixes 2025-12-20 17:21:
 - Now uses SUBJECT-SPECIFIC homework prompts: math_homework, russian_homework, english_homework, etc.
 - Each subject has its own editable prompt (users can customize per subject via /prompts)
@@ -83,6 +88,14 @@ async def start_homework(
         message: User message
         state: FSM state
     """
+    # Очистка предыдущих состояний
+    await state.clear()
+    logger.debug(f"Cleared previous state for user {message.from_user.id}")
+    
+    # Установка нового состояния
+    await state.set_state(HomeworkStates.selecting_subject)
+    logger.debug(f"Set HomeworkStates.selecting_subject for user {message.from_user.id}")
+    
     await message.answer(
         text=(
             "📖 <b>Проверка домашнего задания</b>\n\n"
@@ -91,7 +104,6 @@ async def start_homework(
         reply_markup=get_subjects_keyboard(),
         parse_mode="HTML"
     )
-    await state.set_state(HomeworkStates.selecting_subject)
 
 
 @router.callback_query(
@@ -121,6 +133,7 @@ async def select_subject(
     
     # Store subject in state
     await state.update_data(subject=subject_code)
+    logger.debug(f"User {callback.from_user.id} selected subject: {subject_code}")
     
     # Update message
     await callback.message.edit_text(
@@ -136,7 +149,9 @@ async def select_subject(
         reply_markup=None
     )
     
+    # ПЕРЕХОД К ОЖИДАНИЙ ФАЙЛА
     await state.set_state(HomeworkStates.waiting_for_file)
+    logger.debug(f"Set HomeworkStates.waiting_for_file for user {callback.from_user.id}")
 
 
 @router.message(
@@ -149,20 +164,35 @@ async def process_homework_file(
 ) -> None:
     """Process homework file, photo or text.
     
+    Обработчик ТОЛЬКО срабатывает если состояние точно HomeworkStates.waiting_for_file
+    
     Args:
         message: User message with file
         state: FSM state
     """
+    # Проверяем что мы говорим в правильном состоянии
+    current_state = await state.get_state()
+    if current_state != HomeworkStates.waiting_for_file.state:
+        logger.warning(
+            f"User {message.from_user.id} sent file but not in waiting_for_file state. "
+            f"Current state: {current_state}. "
+            f"This message will be ignored to prevent state conflicts."
+        )
+        # НЕ обрабатываем сообщение
+        return
+    
     data = await state.get_data()
     subject_code = data.get("subject")
     user_id = message.from_user.id
+    
+    logger.debug(f"Processing homework for user {user_id}, subject: {subject_code}")
     
     # Show processing message
     processing_msg = await message.answer(
         text=(
             "🔄 Обрабатываю...\n"
-            "📏 снимаю текст...\n"
-            "🧠 анализирую ответы..."
+            "📴 снимаю текст...\n"
+            "🤖 анализирую ответы..."
         )
     )
     
@@ -177,7 +207,7 @@ async def process_homework_file(
                     f"Проверьте:\n"
                     f"• Фото должно быть четким\n"
                     f"• Текст должен быть читаемым\n"
-                    f"• Или отправьте текст сообщением"
+                    f"• Ор отправьте текст сообщением"
                 )
             )
             await state.clear()
@@ -224,7 +254,7 @@ async def process_homework_file(
         await processing_msg.edit_text(text=result_text)
         
     except Exception as e:
-        logger.error(f"Error processing homework: {e}")
+        logger.error(f"Error processing homework: {e}", exc_info=True)
         await processing_msg.edit_text(
             text=(
                 f"❌ Ошибка при анализе:\n"
@@ -232,8 +262,9 @@ async def process_homework_file(
             )
         )
     
-    # Reset state
+    # Reset state - ОЧИЩАЕМ вкорец при выходе
     await state.clear()
+    logger.debug(f"Cleared homework state for user {user_id}")
 
 
 async def _extract_content(message: Message) -> str:
@@ -343,7 +374,7 @@ async def _extract_text_from_photo(message: Message) -> str:
                 temp_file.unlink()
     
     except Exception as e:
-        logger.error(f"Failed to extract text from photo via OCR: {e}")
+        logger.error(f"Failed to extract text from photo via OCR: {e}", exc_info=True)
         return ""
 
 
