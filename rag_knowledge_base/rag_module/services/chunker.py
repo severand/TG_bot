@@ -104,12 +104,12 @@ class Chunker:
                 metadata.setdefault("page", page)
 
             chunk = Chunk(
-                id=f"{doc_id}_chunk_{position}",
+                chunk_id=f"{doc_id}_chunk_{position}",
                 doc_id=doc_id,
                 text=chunk_text,
-                embedding=[],  # embeddings будут добавлены EmbeddingService
                 position=position,
-                page=page,
+                embedding=None,
+                page_number=page,
                 metadata=metadata,
             )
             chunks.append(chunk)
