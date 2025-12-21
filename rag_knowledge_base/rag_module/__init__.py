@@ -1,52 +1,36 @@
-"""RAG Knowledge Base Module.
+"""RAG (Retrieval-Augmented Generation) Knowledge Base Module.
 
-Retrieval-Augmented Generation system for document-based question answering.
+Standalone module for document-based question answering.
+Provides document management, semantic search, and LLM integration.
 
-Key Components:
-    - FileProcessor: Extract text from various document formats
-    - Chunker: Split documents into semantic chunks
-    - EmbeddingService: Generate vector embeddings
-    - VectorStore: Persist embeddings in ChromaDB
-    - Retriever: Semantic search in knowledge base
-    - RAGManager: Orchestrate all components
+Core Components:
+  - file_processing: Parse PDF, DOCX, TXT, XLS, DOC, ZIP files
+  - services: Core RAG services (chunker, embeddings, vector store, retriever)
+  - models: Data models (Document, Chunk, SearchResult)
+  - exceptions: Custom exception hierarchy
+  - config: Configuration management
 
 Quick Start:
-    from rag_module.manager import RAGManager
-    
-    manager = RAGManager()
-    
-    # Add document
-    await manager.add_document(
-        file_path="document.pdf",
-        doc_id="doc_2024"
-    )
-    
-    # Search
-    results = await manager.search(
-        query="What are the main points?",
-        top_k=3
-    )
-
-Version: 1.0.0
-Status: In Development
-License: Same as TG_bot project
+    >>> from rag_module.manager import RAGManager
+    >>> manager = RAGManager()
+    >>> await manager.add_document("contract.pdf", "doc_001")
+    >>> results = await manager.search("payment terms")
 """
 
-__version__ = "1.0.0"
-__author__ = "Project Owner"
-__license__ = "MIT"
-
-from rag_module.config import RAGConfig
-from rag_module.models import Document, Chunk, SearchResult, DocumentInfo
+from rag_module.config import Settings, get_settings
+from rag_module.models import Document, Chunk, SearchResult
 from rag_module.exceptions import RAGException
-from rag_module.manager import RAGManager
+from rag_module.file_processing import FileConverter, PDFParser, DOCXParser
 
+__version__ = "1.0.0"
 __all__ = [
-    "RAGConfig",
+    "Settings",
+    "get_settings",
     "Document",
     "Chunk",
     "SearchResult",
-    "DocumentInfo",
     "RAGException",
-    "RAGManager",
+    "FileConverter",
+    "PDFParser",
+    "DOCXParser",
 ]
