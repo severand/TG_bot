@@ -11,21 +11,22 @@ Core Components:
   - config: Configuration management
 
 Quick Start:
-    >>> from rag_module.manager import RAGManager
+    >>> from rag_module.services import RAGManager
     >>> manager = RAGManager()
-    >>> await manager.add_document("contract.pdf", "doc_001")
-    >>> results = await manager.search("payment terms")
+    >>> doc = manager.add_document("contract.pdf", "doc_001")
+    >>> results = manager.search("payment terms")
 """
 
-from rag_module.config import Settings, get_settings
+from rag_module.config import RAGConfig, get_config, set_config
 from rag_module.models import Document, Chunk, SearchResult
 from rag_module.exceptions import RAGException
 from rag_module.file_processing import FileConverter, PDFParser, DOCXParser
 
 __version__ = "1.0.0"
 __all__ = [
-    "Settings",
-    "get_settings",
+    "RAGConfig",
+    "get_config",
+    "set_config",
     "Document",
     "Chunk",
     "SearchResult",
