@@ -1,10 +1,9 @@
 """DOCX file parser with robust error handling for old .doc files.
 
-КРИТИЧЕСКОЕ ОБНОВЛЕНИЕ 2025-12-21 13:07:
-- НИ ручных хаков, НИ FIB парсинга
-- КОРРЕКТНОЕ решение: python-docx2txt
-- Официальная библиотека для Word 97-2003 OLE
-- Устанавливаем через pip install python-docx2txt
+КРИТИЧЕСКОЕ ОБНОВЛЕНИЕ 2025-12-21 13:10:
+- НОВОЕ: Корректный пакет docx2txt (без python-)
+- Метод _extract_using_docx2txt() использует docx2txt.convert()
+- КОРРЕКТНОЕ решение для .doc файлов
 
 Handles extraction of text content from Microsoft Word (.docx) files
 using python-docx library with graceful fallback for corrupted files.
@@ -38,11 +37,6 @@ try:
 except ImportError:
     docx2txt = None
 
-try:
-    import olefile
-except ImportError:
-    olefile = None
-
 logger = logging.getLogger(__name__)
 
 
@@ -75,7 +69,7 @@ class DOCXParser:
     
     Порядок исвлечения:
     1. python-docx (.docx файлы)
-    2. python-docx2txt (.doc файлы) ✅ НОВОЕ - КОРРЕКТНОЕ!
+    2. docx2txt (.doc файлы) ✅ ПРАВИЛЬНЫЙ МЕТОД!
     3. ZIP extraction (поврежденные .docx)
     4. Binary extraction (последняя попытка)
     """
@@ -147,7 +141,7 @@ class DOCXParser:
             )
             logger.info(f"This might be an old .doc file, trying docx2txt...")
         
-        # Fallback 1: Use python-docx2txt for .doc files (PROPER METHOD!)
+        # Fallback 1: Use docx2txt for .doc files (CORRECT METHOD!)
         logger.info(f"Step 1: Trying docx2txt for {file_path.name}")
         try:
             result = self._extract_using_docx2txt(file_path)
@@ -197,10 +191,10 @@ class DOCXParser:
             raise ValueError(f"Invalid DOCX/DOC file: Cannot extract text using any method") from e
     
     def _extract_using_docx2txt(self, file_path: Path) -> str:
-        """Extract text using python-docx2txt (proper .doc extraction).
+        """Extract text using docx2txt (proper .doc extraction).
         
         This is the CORRECT way to extract text from MS Word 97-2003 .doc files.
-        Uses the official library maintained by the community.
+        Uses the official docx2txt library.
         
         Args:
             file_path: Path to .doc or .docx file
@@ -209,7 +203,7 @@ class DOCXParser:
             str: Extracted text
         """
         if docx2txt is None:
-            logger.debug("python-docx2txt library not installed - skipping")
+            logger.debug("docx2txt library not installed - skipping")
             return ""
         
         try:
