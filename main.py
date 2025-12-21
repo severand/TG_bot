@@ -2,6 +2,11 @@
 
 Starts the Telegram bot polling and handles graceful shutdown.
 
+Fixes 2025-12-21 14:22:
+- FIX Windows: asyncio.run() вместо manual loop management
+- Убраны RuntimeError: Event loop is closed при выходе
+- Правильный graceful shutdown
+
 Fixes 2025-12-20 23:56:
 - Proper KeyboardInterrupt handling
 - Graceful shutdown of event loop
@@ -89,50 +94,23 @@ async def main() -> None:
             bot,
             allowed_updates=dispatcher.resolve_used_update_types(),
         )
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received - shutting down gracefully...")
-    except Exception as e:
-        logger.error(f"Bot error: {e}", exc_info=True)
     finally:
+        # Always close bot session on exit
         try:
             logger.info("Closing bot session...")
             await bot.session.close()
             logger.info("Bot session closed")
         except Exception as e:
             logger.warning(f"Error closing bot session: {e}")
-        
-        logger.info("Bot shutdown complete")
-
-
-def run_bot() -> None:
-    """Run bot with proper event loop management.
-    
-    Handles event loop creation and cleanup properly.
-    Prevents 'RuntimeError: Event loop is closed' on Windows.
-    """
-    try:
-        # Create and run event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            loop.run_until_complete(main())
-        finally:
-            # Properly close event loop
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            loop.close()
-    
-    except KeyboardInterrupt:
-        logger.info("Bot interrupted by user")
-    except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
-        sys.exit(1)
 
 
 if __name__ == "__main__":
-    # Run bot with proper event loop management
-    run_bot()
+    try:
+        # Use asyncio.run() for proper event loop management on Windows
+        # This prevents "RuntimeError: Event loop is closed" on exit
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}", exc_info=True)
+        sys.exit(1)
