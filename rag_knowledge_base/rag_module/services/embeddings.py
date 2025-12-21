@@ -20,7 +20,7 @@ try:
 except ImportError:
     SentenceTransformer = None
 
-from rag_module.config import get_settings
+from rag_module.config import get_config
 from rag_module.exceptions import RAGException
 
 logger = logging.getLogger(__name__)
@@ -65,10 +65,10 @@ class EmbeddingService:
                 "Run: pip install sentence-transformers"
             )
 
-        settings = get_settings()
-        self.model_name = model_name or settings.EMBEDDING_MODEL
-        self.device = device or settings.EMBEDDING_DEVICE
-        self.batch_size = batch_size or settings.EMBEDDING_BATCH_SIZE
+        config = get_config()
+        self.model_name = model_name or config.embedding_model
+        self.device = device or config.embedding_device
+        self.batch_size = batch_size or config.embedding_batch_size
 
         logger.info(f"Loading embedding model: {self.model_name} on device: {self.device}")
         try:
@@ -83,21 +83,20 @@ class EmbeddingService:
 
     # ---------- Публичный API ----------
 
-    def embed_text(self, text: str) -> List[float]:
+    def embed(self, text: str) -> np.ndarray:
         """Создать embedding для одного текста.
 
         Args:
             text: Исходный текст
 
         Returns:
-            Вектор embeddings (список float размером embedding_dim)
+            Вектор embeddings (numpy array)
 
         Raises:
             EmbeddingError: Если не удалось создать embedding
         """
         if not text or not text.strip():
-            # Для пустого текста возвращаем нулевой вектор
-            return [0.0] * self.embedding_dim
+            return np.zeros(self.embedding_dim, dtype=np.float32)
 
         try:
             embedding = self.model.encode(
@@ -105,7 +104,7 @@ class EmbeddingService:
                 convert_to_numpy=True,
                 show_progress_bar=False,
             )
-            return embedding.tolist()
+            return embedding
         except Exception as e:
             logger.error(f"Error encoding text: {e}")
             raise EmbeddingError(f"Failed to embed text: {e}") from e
@@ -113,7 +112,7 @@ class EmbeddingService:
     def embed_batch(self, texts: List[str]) -> np.ndarray:
         """Создать embeddings для батча текстов.
 
-        Более эффективно, чем вызывать embed_text в цикле.
+        Более эффективно, чем вызывать embed в цикле.
 
         Args:
             texts: Список текстов

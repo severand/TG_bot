@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from rag_module.config import get_settings
+from rag_module.config import get_config
 from rag_module.models import Document, Chunk, SearchResult
 from rag_module.file_processing import FileConverter
 from rag_module.services.chunker import Chunker
@@ -90,8 +90,8 @@ class RAGManager:
         Raises:
             RAGManagerError: Если не удалось инициализировать компоненты
         """
-        settings = get_settings()
-        self.documents_registry_path = Path(settings.VECTOR_DB_PATH) / self.REGISTRY_FILENAME
+        config = get_config()
+        self.documents_registry_path = Path(config.vector_db_path) / self.REGISTRY_FILENAME
 
         try:
             logger.info("Initializing RAG Manager components...")
@@ -131,7 +131,7 @@ class RAGManager:
         Полный pipeline:
         1. Парсинг файла -> текст
         2. Chunking -> список чанков
-        3. Embeddings -> векторы для каждого чанка
+        3. Embeddings -> вектора для каждого чанка
         4. Сохранение в vector store
         5. Обновление реестра документов
 
