@@ -18,19 +18,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def _get_text_preview(text: str, max_words: int = 150) -> str:
-    """Получить предпросмотр текста."""
-    if not text or not text.strip():
-        return "(empty)"
-    
-    words = text.split()
-    if len(words) <= max_words:
-        return text.strip()[:800]
-    
-    preview = ' '.join(words[:max_words])
-    return preview[:800] + "..."
-
-
 class DOCXParser:
     """Парсер для .docx файлов.
     
@@ -83,8 +70,6 @@ class DOCXParser:
                     extracted_text.append(text)
                     paragraph_count += 1
             
-            logger.debug(f"Extracted {paragraph_count} paragraphs")
-            
             # Extract tables
             table_count = 0
             for table in doc.tables:
@@ -98,14 +83,10 @@ class DOCXParser:
                         extracted_text.append(" | ".join(row_text))
                         table_count += 1
             
-            logger.debug(f"Extracted {table_count} tables")
-            
             result = "\n".join(extracted_text)
             if result.strip():
                 logger.info(f"✓ Successfully extracted {len(result)} chars from {file_path.name} "
                           f"({paragraph_count} paragraphs, {table_count} tables)")
-                preview = _get_text_preview(result, max_words=150)
-                logger.info(f"📝 TEXT PREVIEW (first 150 words):\n{preview}")
                 return result
             else:
                 raise ValueError(f"No text extracted from {file_path.name}")
