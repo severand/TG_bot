@@ -1,5 +1,10 @@
 """Conversation mode handlers for interactive document analysis.
 
+Фиксы 2025-12-21 14:16:
+- УБРАНО мигающее сообщение с предпросмотром текста
+- Теперь: Обработка → Анализ (без промежуточных показов)
+- Интерфейс чистый, без миганий
+
 Фиксы 2025-12-21 11:01:
 - Добавлен предпросмотр извлеченного текста (первые 500 символов)
 - Показывается после загрузки и обработки документа
@@ -54,9 +59,6 @@ llm_factory = LLMFactory(
     replicate_api_token=config.REPLICATE_API_TOKEN or None,
     replicate_model=config.REPLICATE_MODEL,
 )
-
-# Константы для предпросмотра
-PREVIEW_LENGTH = 500  # Новая: Количество символов для предпросмотра
 
 
 def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
@@ -238,31 +240,6 @@ async def cb_analyze_cancel(query: CallbackQuery, state: FSMContext) -> None:
     logger.info(f"User {query.from_user.id} cancelled analyze mode")
 
 
-def _format_preview(text: str, max_length: int = PREVIEW_LENGTH) -> str:
-    """Format text preview with truncation and indication.
-    
-    НОВОЕ: Отображает предпросмотр оскви документа.
-    
-    Args:
-        text: Оригинальный текст
-        max_length: Максимум длина предпросмотра
-        
-    Returns:
-        Отоненный текст
-    """
-    if len(text) <= max_length:
-        return text
-    
-    # Найти последний пробел в области максима
-    preview = text[:max_length]
-    last_space = preview.rfind(" ")
-    
-    if last_space > max_length * 0.8:  # Минимум 80% от максима
-        preview = text[:last_space]
-    
-    return preview + " ...\n\n📄 [*Осталось {0} символов*]".format(len(text) - len(preview))
-
-
 @router.message(ConversationStates.ready, F.document)
 async def handle_document_upload(message: Message, state: FSMContext) -> None:
     """Handle document upload - extract and save.
@@ -270,6 +247,9 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
     КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2025-12-20 23:32:
     Каждый файл использует ОНИКАЛЬНЫЙ temp-каталог с UUID,
     чтобы параллельные загрузки не конфликтовали.
+    
+    ИСПРАВЛЕНИЕ 2025-12-21 14:16:
+    Убрано мигающее сообщение с предпросмотром текста.
     """
     if not message.document:
         await message.answer("❌ Документ не найден")
@@ -344,17 +324,6 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             await status_msg.delete()
             return
         
-        # НОВОЕ: Показать предпросмотр
-        preview_text = _format_preview(extracted_text, PREVIEW_LENGTH)
-        
-        await status_msg.edit_text(
-            f"✅ *Документ готов!*\n\n"
-            f"📄 **Предпросмотр текста:**\n\n"
-            f"`{preview_text}`\n\n"
-            f"<i>Извлечено {len(extracted_text)} символов всего</i>",
-            parse_mode="HTML"
-        )
-        
         # Save to state - оригинальное имя документа
         await state.update_data(
             document_text=extracted_text,
@@ -373,7 +342,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             f"{len(extracted_text)} chars with prompt '{selected_prompt_name}'"
         )
         
-        # Update status message with analysis start
+        # Update status message with analysis start (NO PREVIEW MESSAGE)
         await status_msg.edit_text(
             f"⏳ Анализирую с промптом '{selected_prompt_name}'...\n"
             "Это может занять некоторое время..."
@@ -413,6 +382,9 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
     
     КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2025-12-20 23:32:
     Каждое фото использует ОНИКАЛЬНЫЙ temp-каталог с UUID.
+    
+    ИСПРАВЛЕНИЕ 2025-12-21 14:16:
+    Убрано мигающее сообщение с предпросмотром текста.
     """
     if not message.photo:
         await message.answer("❌ Фото не найдено")
@@ -454,17 +426,6 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
             )
             await status_msg.delete()
             return
-        
-        # НОВОЕ: Показать предпросмотр
-        preview_text = _format_preview(extracted_text, PREVIEW_LENGTH)
-        
-        await status_msg.edit_text(
-            f"✅ *Фото обработано!*\n\n"
-            f"📄 **Предпросмотр текста:**\n\n"
-            f"`{preview_text}`\n\n"
-            f"<i>Извлечено {len(extracted_text)} символов всего</i>",
-            parse_mode="HTML"
-        )
         
         # Save to state - оригинальное имя документа
         await state.update_data(
