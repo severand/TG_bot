@@ -1,6 +1,6 @@
 # 🎯 Uh Bot - Intelligent Telegram Document Analysis Bot
 
-**Version:** 1.0.0 | **License:** MIT | **Python:** 3.11+
+**Version:** 1.1.0 | **License:** MIT | **Python:** 3.11+
 
 ---
 
@@ -22,17 +22,37 @@
 
 ## Описание проекта
 
-**Uh Bot** — это интеллектуальный Telegram-бот, разработанный для анализа и обработки документов с использованием искусственного интеллекта. Бот предоставляет комплексное решение для работы с документами, ведения интеллектуального диалога, анализа домашних заданий и управления кастомизируемыми промптами.
+**Uh Bot** — это интеллектуальный Telegram-бот, разработанный для анализа и обработки документов с использованием искусственного интеллекта. Бот предоставляет комплексное решение для работы с документами, ведения интеллектуального диалога, анализа домашних заданий, управления кастомизируемыми промптами и **умную базу знаний с технологией RAG (Retrieval-Augmented Generation)**.
 
 **Целевая аудитория:**
-- Студенты (проверка домашних заданий)
-- Профессионалы (анализ документов)
+- Студенты (проверка домашних заданий, учебная база знаний)
+- Профессионалы (анализ документов, база знаний компании)
 - Преподаватели (проверка работ)
-- Бизнес-пользователи (обработка информации)
+- Бизнес-пользователи (обработка информации, контракты, регламенты)
 
 ---
 
 ## Основные возможности
+
+### 🧠 RAG База Знаний (NEW! 🆕)
+- **Semantic Search**: Умный поиск по смыслу, а не по ключевым словам
+- **Множественные документы**: Загрузи один раз - ищи много раз
+- **In-memory storage**: Работает без ChromaDB (71% функционал реализован)
+- **Работает на Windows**: Нет зависимостей от ChromaDB
+- **384D embeddings**: Sentence-transformers для векторизации
+- **Cosine similarity**: Точный поиск релевантных фрагментов
+
+**Идеально для:**
+- 📚 База знаний компании (регламенты, инструкции, FAQ)
+- 📋 Проектная документация (ТЗ, требования, спецификации)
+- ⚖️ Юридические документы (множественные контракты)
+- 🎓 Учебные материалы (учебники, конспекты, лекции)
+- 💼 HR документы (резюме, политики)
+
+**Поддерживаемые форматы:**
+- PDF, DOCX, DOC, TXT
+- Excel (XLSX, XLS)
+- ZIP архивы с документами
 
 ### 🔍 Анализ документов
 - **Базовый анализ**: Резюме, ключевые моменты, важные детали
@@ -82,6 +102,31 @@
 
 ---
 
+## 🆚 Сравнение команд: /analyze vs /homework vs /rag
+
+| Критерий | `/analyze` | `/homework` | `/rag` 🆕 |
+|---------|-----------|------------|-----------|
+| **Назначение** | Разовый анализ | Проверка домашки | База знаний |
+| **Документов** | 1 за раз | 1 за раз | Много сразу |
+| **Анализ** | ИИ анализ всего документа | ИИ проверка с оценкой | Semantic search по фрагментам |
+| **Результат** | Полный разбор | Оценка + ошибки | Релевантные фрагменты |
+| **Сохранение** | ❌ Не сохраняется | ❌ Не сохраняется | ✅ Сохраняется в базе |
+| **Повторный доступ** | ❌ Загружай заново | ❌ Загружай заново | ✅ Всегда доступно |
+| **Выбор промпта** | ✅ Да (5 типов анализа) | ✅ Да (8 предметов) | ❌ Нет, автоматический поиск |
+| **Скорость** | Медленно (полный анализ) | Медленно (полная проверка) | Быстро (поиск по индексу) |
+
+### 🎯 Простое правило выбора:
+
+```
+1 документ + 1 вопрос = /analyze
+1 домашка + проверка = /homework
+Много документов + много вопросов = /rag 🆕
+```
+
+📖 **Подробное руководство:** [User Guide RAG](docs/USER_GUIDE_RAG.md)
+
+---
+
 ## Технический стек
 
 ### Backend
@@ -96,10 +141,20 @@
 | **Pydantic** | 2.0.0+ | Валидация данных |
 | **python-dotenv** | 1.0.0+ | Управление переменными окружения |
 
+### RAG Components 🆕
+| Компонент | Версия | Назначение |
+|-----------|--------|----------|
+| **sentence-transformers** | 2.2.0+ | Embeddings generation (384D vectors) |
+| **numpy** | 1.24.0+ | Cosine similarity calculations |
+| **In-memory storage** | - | Document chunks storage (no DB needed) |
+| **openpyxl** | 3.1.0+ | Excel files processing |
+
 ### Infrastructure
 - **Polling**: Базовое опрашивание API Telegram
 - **File Processing**: Асинхронная обработка файлов (aiofiles)
-- **Storage**: Локальная файловая система (./data/prompts)
+- **Storage**: 
+  - Локальная файловая система (./data/prompts)
+  - In-memory RAG storage (no ChromaDB) 🆕
 - **OCR**: OCR.space API (облачный сервис)
 
 ### Development Tools
@@ -125,7 +180,8 @@
 │  ├─ conversation.py (/analyze команда)      │
 │  ├─ chat.py (диалог)                        │
 │  ├─ homework.py (проверка домашки)          │
-│  └─ prompts.py (управление промптами)       │
+│  ├─ prompts.py (управление промптами)       │
+│  └─ rag.py (RAG база знаний) 🆕             │
 ├─────────────────────────────────────────────┤
 │          Services Layer (app/services)      │
 │  ├─ llm/ (LLM интеграция)                    │
@@ -145,12 +201,17 @@
 │  └─ parsing/ (обработка результатов)        │
 │     └─ response_formatter.py                │
 ├─────────────────────────────────────────────┤
+│         RAG Module (rag_knowledge_base) 🆕  │
+│  ├─ file_processing.py (text extraction)   │
+│  └─ services.py (Chunker, EmbeddingService) │
+├─────────────────────────────────────────────┤
 │        State Management (app/states)        │
 │  ├─ documents.py (FSM для документов)       │
 │  ├─ conversation.py (FSM для диалога)       │
 │  ├─ chat.py (FSM для чата)                  │
 │  ├─ homework.py (FSM для домашки)           │
-│  └─ prompts.py (FSM для промптов)           │
+│  ├─ prompts.py (FSM для промптов)           │
+│  └─ rag.py (FSM для RAG) 🆕                 │
 ├─────────────────────────────────────────────┤
 │        Configuration Layer (app/config)     │
 │  └─ settings.py (управление конфигурацией) │
@@ -162,6 +223,7 @@
 
 ### 🔄 Поток данных
 
+#### Традиционный анализ (/analyze, /homework)
 1. **User Input** → Telegram Handler
 2. **File Download** → Temp Directory
 3. **Content Extraction** → PDF/DOCX/OCR Parser
@@ -169,6 +231,18 @@
 5. **LLM Processing** → Replicate/OpenAI API
 6. **Response Parsing** → ResponseFormatter
 7. **Output** → User (Telegram)
+
+#### RAG Knowledge Base (/rag) 🆕
+1. **User Upload Documents** → Telegram Handler
+2. **File Download** → Temp Directory
+3. **Text Extraction** → PDF/DOCX/Excel Parser
+4. **Chunking** → Chunker (512 tokens, 50 overlap)
+5. **Vectorization** → EmbeddingService (384D vectors)
+6. **Storage** → In-memory dict {doc_id: chunks}
+7. **User Query** → Query Vectorization
+8. **Similarity Search** → Cosine similarity calculation
+9. **Top-K Results** → Relevant fragments
+10. **Output** → User (Telegram)
 
 ---
 
@@ -201,6 +275,9 @@ venv\Scripts\activate     # Windows
 pip install -e .
 # или с dev зависимостями
 pip install -e ".[dev]"
+
+# Для RAG модуля 🆕
+pip install -r rag_knowledge_base/requirements.txt
 ```
 
 ### Шаг 4: Конфигурация
@@ -243,6 +320,37 @@ python main.py
 ## Использование
 
 ### Telegram команды
+
+#### 🧠 RAG База Знаний 🆕
+
+```
+/rag - Умная база знаний с semantic search
+```
+
+**Процесс:**
+1. `/rag` → Главное меню
+2. 📤 **Загрузить** документы (PDF, DOCX, TXT, Excel, ZIP)
+3. 🔍 **Поиск** - задавать вопросы на естественном языке
+4. Получать релевантные фрагменты из **ВСЕХ** документов сразу
+
+**Кнопки:**
+- 📤 Загрузить - добавить документ в базу
+- 🔍 Поиск - найти информацию
+- 📊 Статистика - посмотреть что в базе
+- 🗑️ Очистить - удалить все документы
+- « Назад - выход из RAG режима
+
+**Отличие от /analyze:**
+- `/analyze` = 1 документ → полный анализ ИИ
+- `/rag` = много документов → быстрый поиск по фрагментам
+
+**Примеры использования:**
+- Юридический отдел: 20 договоров → найти условия штрафов
+- HR: 50 резюме → кандидаты с опытом Python
+- Студент: учебник + конспекты → закон Ома
+- Менеджер: ТЗ + требования + спеки → сроки API
+
+📖 **Подробное руководство:** [User Guide RAG](docs/USER_GUIDE_RAG.md)
 
 #### 📄 Анализ документов
 
@@ -327,7 +435,8 @@ TG_bot/
 │   │   ├── conversation.py      # /analyze команда
 │   │   ├── chat.py              # /chat диалог
 │   │   ├── homework.py          # /homework проверка
-│   │   └── prompts.py           # /prompts управление
+│   │   ├── prompts.py           # /prompts управление
+│   │   └── rag.py               # /rag база знаний 🆕
 │   ├── services/                # Бизнес-логика
 │   │   ├── __init__.py
 │   │   ├── llm/                 # LLM интеграция
@@ -352,13 +461,21 @@ TG_bot/
 │       ├── conversation.py
 │       ├── chat.py
 │       ├── homework.py
-│       └── prompts.py
+│       ├── prompts.py
+│       └── rag.py               # RAG FSM states 🆕
+├── rag_knowledge_base/          # RAG module 🆕
+│   ├── rag_module/
+│   │   ├── __init__.py
+│   │   ├── file_processing.py  # Document text extraction
+│   │   └── services.py         # Chunker, EmbeddingService
+│   └── requirements.txt        # RAG dependencies
 ├── data/                        # Пользовательские данные
 │   └── prompts/                 # Кастомные промпты (JSON)
 ├── docs/                        # Документация
 │   ├── API.md
 │   ├── ARCHITECTURE.md
-│   └── DEPLOYMENT.md
+│   ├── DEPLOYMENT.md
+│   └── USER_GUIDE_RAG.md       # RAG User Guide 🆕
 ├── examples/                    # Примеры использования
 │   ├── prompt_examples.md
 │   └── usage_scenarios.md
@@ -378,6 +495,41 @@ TG_bot/
 ---
 
 ## API документация
+
+### RAG Knowledge Base 🆕
+
+```python
+from rag_knowledge_base.rag_module.services import (
+    Chunker, 
+    EmbeddingService
+)
+from rag_knowledge_base.rag_module.file_processing import (
+    extract_text_from_pdf,
+    extract_text_from_docx,
+    extract_text_from_txt,
+    extract_text_from_excel
+)
+
+# Извлечение текста
+text = extract_text_from_pdf("document.pdf")
+
+# Chunking
+chunker = Chunker(chunk_size=512, overlap=50)
+chunks = chunker.chunk_text(text, doc_id="doc1", filename="document.pdf")
+
+# Embeddings
+embedding_service = EmbeddingService()
+for chunk in chunks:
+    chunk.embedding = embedding_service.get_embedding(chunk.text)
+
+# Поиск
+query_embedding = embedding_service.get_embedding("ваш вопрос")
+results = embedding_service.search(
+    query_embedding=query_embedding,
+    chunks=chunks,
+    top_k=3
+)
+```
 
 ### PromptManager
 
@@ -582,6 +734,8 @@ FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+COPY rag_knowledge_base/requirements.txt ./rag_requirements.txt
+RUN pip install -r rag_requirements.txt
 COPY . .
 CMD ["python", "main.py"]
 ```
@@ -656,6 +810,8 @@ MIT License - см. LICENSE
 - [Replicate API](https://replicate.com/)
 - [OpenAI API](https://platform.openai.com/)
 - [Telegram Bot API](https://core.telegram.org/bots)
+- [RAG User Guide](docs/USER_GUIDE_RAG.md) 🆕
+- [Sentence Transformers](https://www.sbert.net/)
 
 ---
 
