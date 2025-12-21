@@ -2,8 +2,16 @@
 
 Supports multiple LLM providers with fallback mechanism.
 Allows dynamic provider switching.
+
+Fixes 2025-12-21 14:32:
+- УМНАЯ СИСТЕМА RETRY:
+  * 2 retry для primary перед fallback
+  * Если OpenAI 403 (регион) → возврат к Replicate retry
+  * Exponential backoff для timeout
+  * Бот НЕ падает при ошибках API
 """
 
+import asyncio
 import logging
 from typing import Union, Optional, AsyncIterator
 
@@ -45,6 +53,10 @@ class LLMFactory:
     # Provider types
     PROVIDER_OPENAI = "openai"
     PROVIDER_REPLICATE = "replicate"
+    
+    # Retry settings
+    MAX_RETRIES = 2  # Retry primary 2 times before fallback
+    RETRY_DELAY_BASE = 2  # Base delay in seconds (exponential backoff)
     
     def __init__(
         self,
@@ -89,6 +101,47 @@ class LLMFactory:
             except Exception as e:
                 logger.warning(f"Failed to initialize Replicate client: {e}")
     
+    @staticmethod
+    def _is_retryable_error(error: Exception) -> bool:
+        """Check if error is retryable (timeout, network, etc).
+        
+        Args:
+            error: Exception to check
+            
+        Returns:
+            bool: True if should retry
+        """
+        error_str = str(error).lower()
+        
+        # Retryable errors
+        retryable_keywords = [
+            "timeout",
+            "timed out",
+            "connection",
+            "network",
+            "502",  # Bad Gateway
+            "503",  # Service Unavailable
+            "504",  # Gateway Timeout
+        ]
+        
+        return any(keyword in error_str for keyword in retryable_keywords)
+    
+    @staticmethod
+    def _is_openai_region_error(error: Exception) -> bool:
+        """Check if error is OpenAI 403 region restriction.
+        
+        Args:
+            error: Exception to check
+            
+        Returns:
+            bool: True if 403 region error
+        """
+        error_str = str(error).lower()
+        return (
+            "403" in error_str and
+            ("region" in error_str or "territory" in error_str or "country" in error_str)
+        )
+    
     async def analyze_document(
         self,
         document_text: str,
@@ -98,7 +151,11 @@ class LLMFactory:
     ) -> Union[str, AsyncIterator[str]]:
         """Analyze document using primary or fallback provider.
         
-        Tries primary provider first, falls back to secondary if needed.
+        NEW: Smart retry system:
+        - Retry primary 2 times with exponential backoff
+        - If OpenAI 403 (region) → return to Replicate
+        - If timeout → retry with delay
+        - Bot doesn't crash on API errors
         
         Args:
             document_text: Document content
@@ -110,17 +167,7 @@ class LLMFactory:
             Union[str, AsyncIterator[str]]: Analysis result or stream
             
         Raises:
-            ValueError: If no providers available
-            
-        Example:
-            >>> factory = LLMFactory(
-            ...     openai_api_key="sk-...",
-            ...     replicate_api_token="..."
-            ... )
-            >>> result = await factory.analyze_document(
-            ...     "Document...",
-            ...     "Analyze this"
-            ... )
+            ValueError: If no providers available or all retries failed
         """
         primary = self._get_primary_client()
         fallback = self._get_fallback_client()
@@ -131,42 +178,102 @@ class LLMFactory:
                 "Configure OpenAI or Replicate API keys."
             )
         
-        # Try primary provider
-        try:
-            if use_streaming and hasattr(primary, "analyze_document_stream"):
-                logger.info(f"Using {self.primary_provider} with streaming")
-                return primary.analyze_document_stream(
-                    document_text,
-                    user_prompt,
-                    system_prompt,
-                )
-            else:
-                logger.info(f"Using {self.primary_provider}")
-                return await primary.analyze_document(
-                    document_text,
-                    user_prompt,
-                    system_prompt,
-                )
+        # Try primary provider with retries
+        last_error = None
         
-        except Exception as e:
-            logger.warning(
-                f"Primary provider ({self.primary_provider}) failed: {e}. "
-                f"Trying fallback..."
-            )
-            
-            if fallback:
-                try:
-                    logger.info(f"Using fallback provider")
-                    return await fallback.analyze_document(
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                if use_streaming and hasattr(primary, "analyze_document_stream"):
+                    logger.info(
+                        f"Using {self.primary_provider} with streaming "
+                        f"(attempt {attempt + 1}/{self.MAX_RETRIES})"
+                    )
+                    return primary.analyze_document_stream(
                         document_text,
                         user_prompt,
                         system_prompt,
                     )
-                except Exception as e2:
-                    logger.error(f"Fallback provider also failed: {e2}")
-                    raise
-            else:
-                raise
+                else:
+                    logger.info(
+                        f"Using {self.primary_provider} "
+                        f"(attempt {attempt + 1}/{self.MAX_RETRIES})"
+                    )
+                    return await primary.analyze_document(
+                        document_text,
+                        user_prompt,
+                        system_prompt,
+                    )
+            
+            except Exception as e:
+                last_error = e
+                
+                # Check if it's OpenAI 403 region error
+                if self._is_openai_region_error(e):
+                    logger.warning(
+                        f"OpenAI 403 region restriction detected. "
+                        f"Switching to fallback immediately."
+                    )
+                    break  # Don't retry, go to fallback
+                
+                # Check if error is retryable
+                if not self._is_retryable_error(e):
+                    logger.error(
+                        f"Primary provider ({self.primary_provider}) "
+                        f"non-retryable error: {e}"
+                    )
+                    break  # Don't retry non-retryable errors
+                
+                # Retry with exponential backoff
+                if attempt < self.MAX_RETRIES - 1:
+                    delay = self.RETRY_DELAY_BASE ** (attempt + 1)
+                    logger.warning(
+                        f"Primary provider ({self.primary_provider}) failed: {e}. "
+                        f"Retrying in {delay}s... (attempt {attempt + 1}/{self.MAX_RETRIES})"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.warning(
+                        f"Primary provider ({self.primary_provider}) failed after "
+                        f"{self.MAX_RETRIES} attempts: {e}. Trying fallback..."
+                    )
+        
+        # Try fallback provider
+        if fallback:
+            try:
+                logger.info(f"Using fallback provider")
+                return await fallback.analyze_document(
+                    document_text,
+                    user_prompt,
+                    system_prompt,
+                )
+            except Exception as e2:
+                # If fallback is also OpenAI with 403, try primary again
+                if self._is_openai_region_error(e2) and self.replicate_client:
+                    logger.warning(
+                        f"Fallback also has region restriction. "
+                        f"Retrying Replicate one more time..."
+                    )
+                    try:
+                        return await self.replicate_client.analyze_document(
+                            document_text,
+                            user_prompt,
+                            system_prompt,
+                        )
+                    except Exception as e3:
+                        logger.error(f"Final retry also failed: {e3}")
+                        raise ValueError(
+                            f"All providers failed. Last error: {e3}"
+                        ) from e3
+                
+                logger.error(f"Fallback provider also failed: {e2}")
+                raise ValueError(
+                    f"All providers failed. "
+                    f"Primary: {last_error}, Fallback: {e2}"
+                ) from e2
+        else:
+            raise ValueError(
+                f"Primary provider failed and no fallback available: {last_error}"
+            ) from last_error
     
     async def chat(
         self,
@@ -188,12 +295,6 @@ class LLMFactory:
             
         Raises:
             ValueError: If no providers available
-            
-        Example:
-            >>> factory = LLMFactory(openai_api_key="sk-...")
-            >>> response = await factory.chat(
-            ...     "Explain quantum computing"
-            ... )
         """
         primary = self._get_primary_client()
         fallback = self._get_fallback_client()
