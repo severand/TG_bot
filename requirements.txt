@@ -18,8 +18,12 @@ xlrd>=2.0.0  # for old .xls format
 pytesseract>=0.3.10
 Pillow>=10.0.0
 
+# OLD DOC format support (MS Word 97-2003 OLE)
+# Дата исправления: 2025-12-21 10:45
+# Исправление: Добавлена библиотека olefile для корректного чтения старых .doc файлов
+olefile>=0.46  # для чтения структуры OLE и извлечения текста из Word 97-2003
+
 # Optional: Development dependencies
-# Uncomment if needed:
 # pytest>=7.4.0
 # pytest-asyncio>=0.21.0
 # pytest-cov>=4.1.0
