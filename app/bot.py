@@ -13,22 +13,16 @@ logger = logging.getLogger(__name__)
 
 
 async def setup_bot_commands(bot: Bot) -> None:
-    """Set up bot commands in Telegram.
-    
-    Args:
-        bot: Bot instance
-    """
     commands = [
         BotCommand(command="start", description="👋 Запустить бота"),
         BotCommand(command="chat", description="💬 Режим диалога"),
         BotCommand(command="analyze", description="📊 Анализ документов"),
         BotCommand(command="homework", description="📚 Проверка домашки"),
         BotCommand(command="prompts", description="🎯 Управление промптами"),
+        BotCommand(command="rag", description="🧠 RAG База знаний"),  # ДОБАВЬ ЭТУ СТРОКУ
         BotCommand(command="help", description="❓ Справка"),
     ]
-    
-    await bot.set_my_commands(commands)
-    logger.info("Bot commands set up")
+
 
 
 def create_bot(token: str) -> Bot:
