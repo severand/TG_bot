@@ -1,27 +1,19 @@
-"""Document parser using pandoc universal converter.
+"""DOCX file parser.
 
-ОКОНЧАТЕЛЬНОЕ РЕШЕНИЕ 2025-12-21 13:19:
-- pandoc - универсальный конвертер документов
-- Поддерживает .doc, .docx, .pdf, .odt, .rtf и 150+ других
-- НЕ нужны хаки, РАБОТАЕТ
-
-Setup:
-- Windows: choco install pandoc
-- Linux: apt-get install pandoc  
-- macOS: brew install pandoc
+Handles extraction of text from Microsoft Word .docx files.
+For old .doc files, delegates to DOCParser.
 """
 
 import logging
-import subprocess
 from pathlib import Path
-from typing import Optional
 
 from app.services.file_processing.text_cleaner import TextCleaner
+from app.services.file_processing.doc_parser import DOCParser
 
 try:
-    from docx import Document as DocxDocument
+    from docx import Document
 except ImportError:
-    DocxDocument = None
+    Document = None
 
 logger = logging.getLogger(__name__)
 
@@ -40,146 +32,61 @@ def _get_text_preview(text: str, max_words: int = 150) -> str:
 
 
 class DOCXParser:
-    """Универсальный парсер документов на базе pandoc.
+    """Парсер для .docx файлов.
     
-    Поддерживает:
-    - Word: .doc, .docx (pandoc + python-docx fallback)
-    - PDF: .pdf
-    - OpenDocument: .odt
-    - RTF: .rtf
-    - и 150+ других форматов
+    Для .doc файлов делегирует существующему DOCParser.
     """
     
     def __init__(self) -> None:
         self.text_cleaner = TextCleaner()
-        self._pandoc_available = self._check_pandoc()
-    
-    @staticmethod
-    def _check_pandoc() -> bool:
-        """Check if pandoc is installed."""
-        try:
-            subprocess.run(
-                ["pandoc", "--version"],
-                capture_output=True,
-                timeout=5
-            )
-            logger.info("✓ pandoc is installed and available")
-            return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            logger.warning("⚠ pandoc is NOT installed. Install it first!")
-            logger.warning("Windows: choco install pandoc")
-            logger.warning("Linux: apt-get install pandoc")
-            logger.warning("macOS: brew install pandoc")
-            return False
+        self.doc_parser = DOCParser()
     
     def extract_text(self, file_path: Path) -> str:
-        """Extract text from document using pandoc.
+        """Extract text from .docx or .doc file.
         
         Args:
-            file_path: Path to document file
+            file_path: Path to DOCX file
             
         Returns:
             str: Extracted text
             
         Raises:
             FileNotFoundError: If file doesn't exist
-            ValueError: If pandoc is not installed or extraction fails
+            ValueError: If file is not a valid DOCX
         """
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
         
-        if not self._pandoc_available:
-            raise ValueError(
-                "pandoc is not installed. "
-                "Install it: Windows (choco install pandoc), "
-                "Linux (apt-get install pandoc), "
-                "macOS (brew install pandoc)"
-            )
-        
-        logger.info(f"Starting extraction from {file_path.name} ({file_path.stat().st_size} bytes)")
-        
         suffix = file_path.suffix.lower()
         
-        # Try pandoc first (works with almost everything)
-        logger.info(f"Trying pandoc for {suffix} format")
-        result = self._extract_with_pandoc(file_path)
+        # For .doc files, use existing DOCParser
+        if suffix == '.doc':
+            logger.info(f"Delegating .doc file to DOCParser: {file_path.name}")
+            return self.doc_parser.extract_text(file_path)
         
-        if result and result.strip():
-            logger.info(f"✓ Pandoc extraction successful: {len(result)} chars")
-            preview = _get_text_preview(result, max_words=150)
-            logger.info(f"📝 TEXT PREVIEW:\n{preview}")
-            return result
+        # For .docx files, use python-docx
+        logger.info(f"Starting extraction from {file_path.name} ({file_path.stat().st_size} bytes)")
         
-        # Fallback: try python-docx for DOCX files
-        if suffix == '.docx' and DocxDocument:
-            logger.info(f"Fallback: Trying python-docx for DOCX")
-            result = self._extract_with_python_docx(file_path)
-            
-            if result and result.strip():
-                logger.info(f"✓ python-docx extraction successful: {len(result)} chars")
-                preview = _get_text_preview(result, max_words=150)
-                logger.info(f"📝 TEXT PREVIEW:\n{preview}")
-                return result
-        
-        raise ValueError(f"Cannot extract text from {file_path.name}")
-    
-    def _extract_with_pandoc(self, file_path: Path) -> str:
-        """Extract text using pandoc converter.
-        
-        Converts document to plain text using pandoc.
-        Works with: .doc, .docx, .pdf, .odt, .rtf, and 150+ other formats.
-        """
-        try:
-            logger.debug(f"Using pandoc for {file_path.name}")
-            
-            # pandoc: input_file -t plain -o output_file
-            # We use -t plain for plain text output
-            result = subprocess.run(
-                ["pandoc", str(file_path), "-t", "plain"],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            if result.returncode == 0 and result.stdout:
-                text = result.stdout.strip()
-                if text:
-                    logger.debug(f"pandoc returned {len(text)} chars")
-                    return text
-                else:
-                    logger.debug(f"pandoc returned empty text")
-                    return ""
-            else:
-                logger.warning(f"pandoc failed with return code {result.returncode}")
-                if result.stderr:
-                    logger.warning(f"pandoc error: {result.stderr[:100]}")
-                return ""
-        
-        except subprocess.TimeoutExpired:
-            logger.error(f"pandoc conversion timed out for {file_path.name}")
-            return ""
-        except Exception as e:
-            logger.error(f"pandoc extraction error: {type(e).__name__}: {str(e)[:100]}")
-            return ""
-    
-    def _extract_with_python_docx(self, file_path: Path) -> str:
-        """Extract text from .docx files using python-docx (fallback)."""
-        if DocxDocument is None:
-            logger.debug("python-docx not installed")
-            return ""
+        if Document is None:
+            raise ValueError("python-docx not installed")
         
         try:
-            logger.debug(f"Using python-docx for {file_path.name}")
-            doc = DocxDocument(file_path)
-            
-            extracted = []
+            logger.info(f"Using python-docx for {file_path.name}")
+            doc = Document(file_path)
+            extracted_text = []
             
             # Extract paragraphs
-            for para in doc.paragraphs:
-                if para.text.strip():
-                    extracted.append(para.text)
+            paragraph_count = 0
+            for paragraph in doc.paragraphs:
+                text = paragraph.text.strip()
+                if text:
+                    extracted_text.append(text)
+                    paragraph_count += 1
+            
+            logger.debug(f"Extracted {paragraph_count} paragraphs")
             
             # Extract tables
+            table_count = 0
             for table in doc.tables:
                 for row in table.rows:
                     row_text = []
@@ -188,21 +95,39 @@ class DOCXParser:
                             if para.text.strip():
                                 row_text.append(para.text)
                     if row_text:
-                        extracted.append(" | ".join(row_text))
+                        extracted_text.append(" | ".join(row_text))
+                        table_count += 1
             
-            return "\n".join(extracted)
+            logger.debug(f"Extracted {table_count} tables")
+            
+            result = "\n".join(extracted_text)
+            if result.strip():
+                logger.info(f"✓ Successfully extracted {len(result)} chars from {file_path.name} "
+                          f"({paragraph_count} paragraphs, {table_count} tables)")
+                preview = _get_text_preview(result, max_words=150)
+                logger.info(f"📝 TEXT PREVIEW (first 150 words):\n{preview}")
+                return result
+            else:
+                raise ValueError(f"No text extracted from {file_path.name}")
         
         except Exception as e:
-            logger.error(f"python-docx error: {type(e).__name__}: {str(e)[:100]}")
-            return ""
+            logger.error(f"Error extracting text from {file_path.name}: {type(e).__name__}: {str(e)[:100]}")
+            raise ValueError(f"Cannot extract text from {file_path.name}") from e
     
     def get_metadata(self, file_path: Path) -> dict:  # type: ignore
-        """Extract document metadata (DOCX only)."""
-        try:
-            if file_path.suffix.lower() != '.docx':
-                return {}
+        """Extract DOCX metadata.
+        
+        Args:
+            file_path: Path to DOCX file
             
-            doc = DocxDocument(file_path)
+        Returns:
+            dict: Document metadata
+        """
+        if file_path.suffix.lower() != '.docx':
+            return {}
+        
+        try:
+            doc = Document(file_path)
             props = doc.core_properties
             return {
                 "title": props.title,
