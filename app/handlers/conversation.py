@@ -1,47 +1,27 @@
 """Conversation mode handlers for interactive document analysis.
 
-Fixes 2025-12-20 23:32:
+Фиксы 2025-12-21 11:01:
+- Добавлен предпросмотр извлеченного текста (первые 500 символов)
+- Показывается после загрузки и обработки документа
+- Осмотр отображается в аккуратном формате с отеняванием
+
+Фиксы 2025-12-20 23:32:
 - КРИТИЧЕСКОЕ: Каждый файл использует свой уникальный temp-директорий (UUID-based)
 - Устранена race condition когда параллельные загрузки удаляли директории друг друга
-- Теперь temp\7884972750_{file_uuid} вместо общего temp\7884972750
+- Теперь temp\7884972750_{file_uuid} вместо обыкновенного temp\7884972750
 - Каждый файл удаляет только свой директорий, не затрагивая другие
 
-Fixes 2025-12-20 22:15:
+Фиксы 2025-12-20 22:15:
 - Поддерживает название документа в заголовке результата
 - Оригинальное имя файла показывается в каждом сообщении
 - При получении голоса называется 'photo_document'
 
-Fixes 2025-12-20 21:05:
+Фиксы 2025-12-20 21:05:
 - Убрано навязчивое сообщение "Хотите отредактировать промпт?" после анализа
 - Теперь выводится только результат анализа без дополнительных напоминаний
 - Логику обработки и состояния НЕ менял, только тексты
 
-Fixes 2025-12-20 19:30:
-- Добавлены подсказки о редактировании промптов
-- Каждое сообщение указывает: "/prompts > Документы > [название] > Редактировать"
-- Не изменена логика и процесс обработки
-- Только добавлены подсказки в тексты сообщений
-
-Fixes 2025-12-20 19:05:
-- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: В /analyze показываются ТОЛЬКО промпты для анализа документов
-- Использует get_prompt_by_category() вместо list_prompts() для фильтрации
-- Убрана ошибка отображения домашки и чата в списке промптов для анализа
-- Кнопки теперь правильно фильтруются по категории "document_analysis"
-
-Fixes 2025-12-20:
-- Prompt selection keyboard: 2 buttons per row for better layout
-- Photo upload: no 'photo ready' confirmation, only progress message
-- Progress message auto-deleted after analysis results sent
-- Logging order fixed: photo loaded log before analysis (not after)
-- OCR extraction: Added detailed step-by-step logging for silent failures
-- OCR timeout: Increased to 60s, added connection timeout
-- OCR validation: Check response structure before parsing
-- STATE TRANSITION FIXED: After analysis completes, return to chat mode (clear state)
-  Previously user was stuck in waiting_for_command, any text would re-trigger analysis
-
-Users now select prompt TYPE BEFORE uploading document.
-Workflow: /analyze -> Select prompt -> Upload document -> Analyze -> Back to chat
-Full prompt selection integration.
+Handles document analysis and user prompts for interactive conversation.
 """
 
 import logging
@@ -74,6 +54,9 @@ llm_factory = LLMFactory(
     replicate_api_token=config.REPLICATE_API_TOKEN or None,
     replicate_model=config.REPLICATE_MODEL,
 )
+
+# Константы для предпросмотра
+PREVIEW_LENGTH = 500  # Новая: Количество символов для предпросмотра
 
 
 def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
@@ -141,13 +124,13 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
     
     text = (
         "📋 *Анализ документов*\n\n"
-        "Шаг 1️⃣ из 2: *Выберите тип анализа*\n\n"
+        "Шаг 1⃣⃣⃣ из 2: *Выберите тип анализа*\n\n"
         f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
         "🔙 *Как это работает:*\n"
-        "1️⃣ Выберите промпт (тип анализа)\n"
-        "2️⃣ Загрузите документ\n"
-        "3️⃣ Получите результат\n\n"
-        "✏️ *Как отредактировать промпт:*\n"
+        "1⃣⃣⃣ Выберите промпт (тип анализа)\n"
+        "2⃣⃣⃣ Загрузите документ\n"
+        "3⃣⃣⃣ Получите результат\n\n"
+        "✏̱ *Как отредактировать промпт:*\n"
         "`/prompts` → Документы → [Выбрать] → Редактировать\n\n"
         "👇 Ниже выберите тип анализа:"
     )
@@ -191,10 +174,13 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
         f"✅ *Промпт выбран!*\n\n"
         f"📄 *Тип анализа:* `{prompt_name}`\n"
         f"_{prompt.description}_\n\n"
-        f"📂 *Шаг 2️⃣ из 2:* Загрузите документ\n\n"
+        f"📂 *Шаг 2⃣⃣⃣ из 2:* Загрузите документ\n\n"
         f"📄 *Поддерживаемые форматы:*\n"
-        f"• PDF, DOCX, TXT\n• Excel (.xlsx, .xls)\n• ZIP, DOC\n• 📸 Фото\n\n"
-        f"✏️ *Редактировать этот промпт?*\n"
+        f"• PDF, DOCX, TXT\n"
+        f"• Excel (.xlsx, .xls)\n"
+        f"• ZIP, DOC\n"
+        f"• 📇 Фото\n\n"
+        f"✏̱ *Редактировать этот промпт?*\n"
         f"`/prompts` → Документы → `{prompt_name}` → Редактировать\n\n"
         f"📁 Готово? Отправьте документ!"
     )
@@ -221,9 +207,9 @@ async def cb_back_to_prompts(query: CallbackQuery, state: FSMContext) -> None:
     
     text = (
         "📋 *Анализ документов*\n\n"
-        "Шаг 1️⃣ из 2: *Выберите тип анализа*\n\n"
+        "Шаг 1⃣⃣⃣ из 2: *Выберите тип анализа*\n\n"
         f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
-        "✏️ *Как отредактировать промпт:*\n"
+        "✏̱ *Как отредактировать промпт:*\n"
         "`/prompts` → Документы → [Выбрать] → Редактировать\n\n"
         "👇 Ниже выберите тип анализа:"
     )
@@ -252,12 +238,37 @@ async def cb_analyze_cancel(query: CallbackQuery, state: FSMContext) -> None:
     logger.info(f"User {query.from_user.id} cancelled analyze mode")
 
 
+def _format_preview(text: str, max_length: int = PREVIEW_LENGTH) -> str:
+    """Format text preview with truncation and indication.
+    
+    НОВОЕ: Отображает предпросмотр оскви документа.
+    
+    Args:
+        text: Оригинальный текст
+        max_length: Максимум длина предпросмотра
+        
+    Returns:
+        Отоненный текст
+    """
+    if len(text) <= max_length:
+        return text
+    
+    # Найти последний пробел в области максима
+    preview = text[:max_length]
+    last_space = preview.rfind(" ")
+    
+    if last_space > max_length * 0.8:  # Минимум 80% от максима
+        preview = text[:last_space]
+    
+    return preview + " ...\n\n📄 [*Осталось {0} символов*]".format(len(text) - len(preview))
+
+
 @router.message(ConversationStates.ready, F.document)
 async def handle_document_upload(message: Message, state: FSMContext) -> None:
     """Handle document upload - extract and save.
     
     КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2025-12-20 23:32:
-    Каждый файл использует УНИКАЛЬНЫЙ temp-каталог с UUID,
+    Каждый файл использует ОНИКАЛЬНЫЙ temp-каталог с UUID,
     чтобы параллельные загрузки не конфликтовали.
     """
     if not message.document:
@@ -333,6 +344,17 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             await status_msg.delete()
             return
         
+        # НОВОЕ: Показать предпросмотр
+        preview_text = _format_preview(extracted_text, PREVIEW_LENGTH)
+        
+        await status_msg.edit_text(
+            f"✅ *Документ готов!*\n\n"
+            f"📄 **Предпросмотр текста:**\n\n"
+            f"`{preview_text}`\n\n"
+            f"<i>Извлечено {len(extracted_text)} символов всего</i>",
+            parse_mode="HTML"
+        )
+        
         # Save to state - оригинальное имя документа
         await state.update_data(
             document_text=extracted_text,
@@ -390,7 +412,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
     """Handle photo upload with OCR extraction - progress only, no confirmation.
     
     КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2025-12-20 23:32:
-    Каждое фото использует УНИКАЛЬНЫЙ temp-каталог с UUID.
+    Каждое фото использует ОНИКАЛЬНЫЙ temp-каталог с UUID.
     """
     if not message.photo:
         await message.answer("❌ Фото не найдено")
@@ -404,7 +426,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         "Распознавание текста (OCR)..."
     )
     
-    # КРИТИЧЕСКОЕ: Уникальный temp-каталог для фото
+    # КРИТИЧЕСКОЕ: Оникальный temp-каталог для фото
     file_uuid = str(uuid.uuid4())
     temp_user_dir = None
     
@@ -432,6 +454,17 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
             )
             await status_msg.delete()
             return
+        
+        # НОВОЕ: Показать предпросмотр
+        preview_text = _format_preview(extracted_text, PREVIEW_LENGTH)
+        
+        await status_msg.edit_text(
+            f"✅ *Фото обработано!*\n\n"
+            f"📄 **Предпросмотр текста:**\n\n"
+            f"`{preview_text}`\n\n"
+            f"<i>Извлечено {len(extracted_text)} символов всего</i>",
+            parse_mode="HTML"
+        )
         
         # Save to state - оригинальное имя документа
         await state.update_data(
@@ -512,7 +545,7 @@ async def _perform_analysis(
         
         if not prompt:
             await message.answer(
-                "❌ Промпт не найден. Используется стандартный..."
+                "❌ Промпт не найден. Открываю стандартный..."
             )
         
         # Build analysis command - NO additional instruction support
@@ -527,7 +560,7 @@ async def _perform_analysis(
         )
         
         if not analysis_result:
-            await message.answer("❌ Анализ не удался. Попробуйте ещё раз.")
+            await message.answer("❌ Анализ не удался. Попробуйте еще раз.")
             if status_msg:
                 await status_msg.delete()
             # Return to chat mode
@@ -538,7 +571,7 @@ async def _perform_analysis(
         splitter = TextSplitter(max_length=4000)
         chunks = splitter.split(analysis_result)
         
-        # ОТОБРАЖЕНИЕ: добавляем имя документа на наЧАЛО
+        # ОТОБРАЖЕНИЕ: добавляем имя документа на НАЧАЛО
         if len(chunks) == 1:
             # Одно сообщение
             header = f"📄 *Документ:* `{document_name}`\n\n"
