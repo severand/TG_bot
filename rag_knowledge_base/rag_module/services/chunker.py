@@ -22,7 +22,7 @@ import re
 from dataclasses import asdict
 from typing import Iterable, List, Dict, Any, Optional
 
-from rag_module.config import get_settings
+from rag_module.config import get_config
 from rag_module.models import Chunk
 from rag_module.exceptions import RAGException
 
@@ -41,8 +41,8 @@ class Chunker:
     4. Собираем итоговые чанки фиксированного размера с overlap.
 
     Размеры и поведение берутся из конфигурации:
-    - CHUNK_SIZE
-    - CHUNK_OVERLAP
+    - chunk_size
+    - chunk_overlap
     """
 
     PARAGRAPH_SEPARATOR = "\n\n"
@@ -52,14 +52,14 @@ class Chunker:
         chunk_size: Optional[int] = None,
         chunk_overlap: Optional[int] = None,
     ) -> None:
-        settings = get_settings()
-        self.chunk_size = chunk_size or settings.CHUNK_SIZE
-        self.chunk_overlap = chunk_overlap or settings.CHUNK_OVERLAP
+        config = get_config()
+        self.chunk_size = chunk_size or config.chunk_size
+        self.chunk_overlap = chunk_overlap or config.chunk_overlap
 
         if self.chunk_size <= 0:
-            raise ChunkingError("CHUNK_SIZE must be > 0")
+            raise ChunkingError("chunk_size must be > 0")
         if not 0 <= self.chunk_overlap < self.chunk_size:
-            raise ChunkingError("CHUNK_OVERLAP must be between 0 and CHUNK_SIZE - 1")
+            raise ChunkingError("chunk_overlap must be between 0 and chunk_size - 1")
 
     # ---------- Публичный API ----------
 
