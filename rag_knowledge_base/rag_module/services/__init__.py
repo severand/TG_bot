@@ -9,14 +9,9 @@ Core services for RAG pipeline:
   - manager: Orchestrate all services
 """
 
-from rag_module.services.chunker import Chunker
-from rag_module.services.embeddings import EmbeddingService
-from rag_module.services.vector_store import ChromaVectorStore
-from rag_module.services.retriever import Retriever
+from rag_module.services.chunker import Chunker, ChunkingError
 
 __all__ = [
     "Chunker",
-    "EmbeddingService",
-    "ChromaVectorStore",
-    "Retriever",
+    "ChunkingError",
 ]
