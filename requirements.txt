@@ -10,22 +10,27 @@ python-dotenv>=1.0.0
 structlog>=23.0.0
 aiofiles>=23.0.0
 
-# Excel/XLS support for document parsing
-# Дата исправления: 2025-12-21 10:48
-# Исправление: Исправлена версия openpyxl (3.10.0 не существует, используем 3.0.10)
-openpyxl>=3.0.10  # for .xlsx (исправлена версия)
+# Document format support
+# Дата исправления: 2025-12-21 13:15
+# ОКОНЧАТЕЛЬНОЕ: НИКАКих хаков, только стабильные пакеты
+
+# Word documents (.docx)
+python-docx>=1.0.0
+
+# PDF documents
+pypdf>=4.0.0
+pdf2image>=1.16.0  # для конвертации PDF в изображения (OCR)
+
+# PowerPoint documents (.ppt, .pptx)
+python-pptx>=0.6.21
+
+# Excel/XLS support
+openpyxl>=3.0.10  # for .xlsx
 xlrd>=2.0.0  # for old .xls format
 
-# OCR dependencies
+# OCR dependencies (for scanned documents)
 pytesseract>=0.3.10
 Pillow>=10.0.0
-
-# DOCUMENT EXTRACTION - FINAL SOLUTION
-# Дата исправления: 2025-12-21 13:13
-# ОКОНЧАТЕЛЬНОЕ РЕШЕНИЕ: НИКАКИХ ХАКОВ OLE!
-# textract - универсальный парсер для всех документов
-# Поддерживает: .doc, .docx, .pdf, .xls, .xlsx, .ppt, .txt, .rtf и т.д.
-textract>=1.6.3  # ОКОНЧАТЕЛЬНОЕ РЕШЕНИЕ для .doc
 
 # Optional: Development dependencies
 # pytest>=7.4.0
