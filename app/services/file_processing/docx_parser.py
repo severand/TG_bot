@@ -1,5 +1,10 @@
 """DOCX file parser with robust error handling for old .doc files.
 
+Фиксы 2025-12-21 11:20 - КРИТИЧЕСКИЙ ПОРЯДОК:
+- OLE extraction ПЕРЕД binary (правильный порядок методов)
+- python-docx → ZIP → OLE (olefile) → Binary
+- OLE должен быть вторичным методом, прежде чем падать на бинарный
+
 Фиксы 2025-12-21 10:45 - ПОДДЕРЖКА СТАРЫХ .DOC ФАЙЛОВ:
 - Добавлен метод _extract_from_ole_doc() для чтения OLE структуры
 - Использует библиотеку olefile для MS Word 97-2003 формата
@@ -7,27 +12,6 @@
 - Автоматическое определение кодировки (cp1251 для русского)
 - Лучшая очистка текста с удалением служебных символов
 - Улучшена цепочка fallback методов
-
-Фиксы 2025-12-21 00:45 - TEXT CLEANING:
-- Integrate TextCleaner for extracted binary content
-- Remove garbage characters from binary .doc extraction
-- Normalize whitespace and preserve paragraphs
-- Validate text quality before returning
-- Show preview of extracted text
-
-Фиксы 2025-12-21 00:35 - CRITICAL FIX:
-- Improved binary .doc extraction with better text detection
-- Better word boundary detection in old Word binary format
-- Extract more text from corrupted binary files
-- Better handling of MS Office OLE format
-
-Фиксы 2025-12-20 23:55 - IMPROVED SOLUTION:
-- Try python-docx first (works for valid DOCX)
-- If fails = old .doc binary format, fallback to ZIP extraction
-- Extract text from document.xml even if corrupted
-- Handle cases where ZIP structure is incomplete
-- NO external dependencies beyond python-docx
-- WORKS for both .docx AND renamed .doc->docx files
 
 Handles extraction of text content from Microsoft Word (.docx) files
 using python-docx library with graceful fallback for corrupted files.
@@ -69,11 +53,17 @@ class DOCXParser:
     """Parser for DOCX (Microsoft Word) documents.
     
     Supports both valid DOCX files and old .doc files.
-    Uses python-docx for valid files, ZIP extraction fallback for corrupted.
-    Also handles pure binary old .doc files (not ZIP-based) using olefile.
+    Uses python-docx for valid files, ZIP extraction fallback for corrupted,
+    OLE extraction with olefile for old binary .doc, binary as last resort.
     Handles incomplete ZIP structures and corrupted XML gracefully.
     
     Cleans extracted text from binary sources to remove garbage.
+    
+    EXTRACTION ORDER:
+    1. python-docx (valid .docx files)
+    2. ZIP extraction (corrupted .docx with ZIP structure)
+    3. OLE extraction with olefile (old .doc files) - BEFORE BINARY
+    4. Binary extraction (pure binary, no OLE support)
     """
     
     def __init__(self) -> None:
@@ -84,7 +74,7 @@ class DOCXParser:
         """Extract text from DOCX file.
         
         Extracts text from paragraphs and tables, preserving document structure.
-        Tries python-docx first, falls back to ZIP extraction, then OLE, then binary.
+        Tries python-docx first, ZIP, then OLE (if olefile available), then binary.
         Cleans extracted text from binary sources.
         
         Args:
@@ -161,7 +151,7 @@ class DOCXParser:
             logger.warning(f"ZIP fallback failed: {type(e).__name__}: {str(e)[:100]}")
             logger.info(f"Trying OLE method for old .doc files...")
         
-        # Fallback 2: Extract using OLE (for old MS Word 97-2003 binary .doc)
+        # Fallback 2: Extract using OLE (for old MS Word 97-2003 binary .doc) - BEFORE BINARY
         try:
             logger.info(f"Using OLE method for {file_path.name}")
             result = self._extract_from_ole_doc(file_path)
@@ -186,7 +176,7 @@ class DOCXParser:
         
         except Exception as e:
             logger.warning(f"OLE method failed: {type(e).__name__}: {str(e)[:100]}")
-            logger.info(f"Trying primitive binary extraction...")
+            logger.info(f"Trying primitive binary extraction as last resort...")
         
         # Fallback 3: Extract from binary old .doc format (last resort)
         try:
@@ -231,7 +221,7 @@ class DOCXParser:
             str: Extracted text
         """
         if olefile is None:
-            logger.error("olefile library not installed. Install with: pip install olefile>=0.46")
+            logger.warning("olefile library not installed. Install with: pip install olefile>=0.46")
             return ""
         
         try:
