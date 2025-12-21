@@ -15,6 +15,30 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def _get_text_preview(text: str, max_words: int = 150) -> str:
+    """Получить предпросмотр текста (первые N слов).
+    
+    Args:
+        text: Исходный текст
+        max_words: Максимальное количество слов
+        
+    Returns:
+        Предпросмотр текста
+    """
+    if not text or not text.strip():
+        return "(empty)"
+    
+    # Разбиваем на слова
+    words = text.split()
+    
+    if len(words) <= max_words:
+        return text.strip()[:800]  # Максимум 800 символов
+    
+    # Берем первые max_words слов
+    preview = ' '.join(words[:max_words])
+    return preview[:800] + "..."
+
+
 class DOCParser:
     """Specialized parser for old binary .doc format.
     
@@ -96,6 +120,11 @@ class DOCParser:
             results.sort(key=lambda x: x[1], reverse=True)
             best_method, best_len, best_text = results[0]
             logger.info(f"✓ Best extraction: {best_method} ({best_len} chars)")
+            
+            # НОВОЕ: Предпросмотр текста
+            preview = _get_text_preview(best_text, max_words=150)
+            logger.info(f"📝 TEXT PREVIEW ({best_method}, first 150 words):\n{preview}")
+            
             return best_text.strip()
         
         logger.warning(f"No substantial text found in {file_path.name}")
