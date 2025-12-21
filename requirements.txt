@@ -11,24 +11,30 @@ structlog>=23.0.0
 aiofiles>=23.0.0
 
 # Document format support
-# Дата исправления: 2025-12-21 13:15
-# ОКОНЧАТЕЛЬНОЕ: НИКАКих хаков, только стабильные пакеты
+# Дата исправления: 2025-12-21 13:19
+# ОКОНЧАТЕЛЬНОЕ РЕШЕНИЕ: pandoc - универсальный конвертер документов
+# Работает с .doc, .docx, .pdf, .odt, .rtf и т.д.
+# Установка Windows: choco install pandoc
+# Установка Linux: apt-get install pandoc
+# Установка macOS: brew install pandoc
+
+pandocfilters>=1.5.0  # для работы с pandoc
 
 # Word documents (.docx)
 python-docx>=1.0.0
 
 # PDF documents
 pypdf>=4.0.0
-pdf2image>=1.16.0  # для конвертации PDF в изображения (OCR)
+pdf2image>=1.16.0
 
-# PowerPoint documents (.ppt, .pptx)
+# PowerPoint documents
 python-pptx>=0.6.21
 
 # Excel/XLS support
-openpyxl>=3.0.10  # for .xlsx
-xlrd>=2.0.0  # for old .xls format
+openpyxl>=3.0.10
+xlrd>=2.0.0
 
-# OCR dependencies (for scanned documents)
+# OCR dependencies
 pytesseract>=0.3.10
 Pillow>=10.0.0
 
@@ -36,7 +42,3 @@ Pillow>=10.0.0
 # pytest>=7.4.0
 # pytest-asyncio>=0.21.0
 # pytest-cov>=4.1.0
-# ruff>=0.1.0
-# black>=23.0.0
-# mypy>=1.5.0
-# httpx>=0.25.0
