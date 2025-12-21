@@ -1,68 +1,66 @@
-# RAG Knowledge Base Module 🧠
+# RAG Модуль Базы Знаний 🧠
 
-**Version:** 1.0.0 (In Development)  
-**Status:** 🔧 Active Development  
-**Last Updated:** 2025-12-21  
-
----
-
-## 📋 Module Overview
-
-This is a **standalone, scalable RAG (Retrieval-Augmented Generation) module** designed for the TG_bot project.
-
-### Core Capabilities
-- 🔄 **Document Management** - Upload, store, retrieve documents
-- 🧠 **Semantic Search** - Find relevant content using embeddings
-- 💾 **Vector Storage** - ChromaDB for efficient retrieval
-- 🤖 **LLM Integration** - Answer questions based on document knowledge
-- 📊 **Scalability** - Designed for 1000+ documents
+**Версия:** 1.0.0 (В разработке)  
+**Статус:** 🔧 Активная разработка  
+**Обновлено:** 2025-12-21  
 
 ---
 
-## 🎯 Purpose & Vision
+## 📋 Описание Модуля
 
-### The Problem
-Users repeatedly upload same documents and bots can't remember information across conversations.
+Это **отдельный, масштабируемый RAG (Retrieval-Augmented Generation) модуль** для проекта TG_bot.
 
-### The Solution
-RAG lets users upload documents ONCE and ask unlimited questions with accurate answers based on stored knowledge.
+### Основные Возможности
+- 📄 **Управление Документами** - Загрузка, сохранение, поиск документов
+- 🧠 **Семантический Поиск** - Поиск по смыслу через embeddings
+- 💾 **Векторное Хранилище** - ChromaDB для эффективного поиска
+- 🤖 **Интеграция с LLM** - Ответы на основе документов
+- 📈 **Масштабируемость** - Поддержка 1000+ документов
 
 ---
 
-## 📁 Project Structure
+## 🎯 Задача и Видение
+
+### Проблема
+Пользователи постоянно загружают одни и те же документы, а боты не помнят информацию.
+
+### Решение
+RAG позволяет загрузить документы ОДИН РАЗ и задавать неограниченное количество вопросов с точными ответами.
+
+---
+
+## 📁 Структура Проекта
 
 ```
 rag_knowledge_base/
-├── README.md                    # This file
-├── ARCHITECTURE.md              # Technical design
-├── DEVELOPMENT.md               # Dev guide
-├── DEPLOYMENT.md                # Production guide
-├── TROUBLESHOOTING.md           # Common issues
-├── requirements.txt             # Dependencies
+├── README.md                    # Этот файл
+├── ARCHITECTURE.md              # Техническая архитектура
+├── DEVELOPMENT.md               # Гайд разработчика
+├── DEPLOYMENT.md                # Развертывание
+├── TROUBLESHOOTING.md           # Решение проблем
+├── requirements.txt             # Зависимости
 │
-├── rag_module/                  # Main implementation
+├── rag_module/                  # Основной модуль
 │   ├── __init__.py
-│   ├── config.py                # Configuration
-│   ├── models.py                # Data models
-│   ├── exceptions.py            # Custom exceptions
+│   ├── config.py                # Конфигурация
+│   ├── models.py                # Модели данных
+│   ├── exceptions.py            # Исключения
 │   │
-│   ├── services/                # Core services
+│   ├── services/                # Сервисы
 │   │   ├── __init__.py
-│   │   ├── chunker.py           # Doc → Chunks
-│   │   ├── embeddings.py        # Text → Vectors
-│   │   ├── vector_store.py      # ChromaDB wrapper
-│   │   ├── retriever.py         # Semantic search
-│   │   ├── manager.py           # Orchestrator
-│   │   └── file_processor.py    # Parse PDF/DOCX
+│   │   ├── chunker.py           # Разбивка на куски
+│   │   ├── embeddings.py        # Векторизация
+│   │   ├── vector_store.py      # ChromaDB
+│   │   ├── retriever.py         # Поиск
+│   │   ├── manager.py           # Оркестратор
+│   │   └── file_processor.py    # Парсинг файлов
 │   │
-│   └── utils/                   # Utilities
-│       ├── __init__.py
-│       ├── validators.py        # Input validation
-│       ├── formatters.py        # Output formatting
-│       └── logger.py            # Logging setup
+│   └── utils/                   # Утилиты
+│       ├── validators.py        # Валидация
+│       ├── formatters.py        # Форматирование
+│       └── logger.py            # Логирование
 │
-├── tests/                       # Unit & integration tests
-│   ├── __init__.py
+├── tests/                       # Тесты
 │   ├── test_chunker.py
 │   ├── test_embeddings.py
 │   ├── test_vector_store.py
@@ -70,63 +68,79 @@ rag_knowledge_base/
 │   ├── test_manager.py
 │   └── test_integration.py
 │
-├── examples/                    # Usage examples
-│   ├── basic_example.py         # Simple usage
-│   ├── advanced_example.py      # Advanced features
-│   └── sample_documents/        # Test docs
+├── examples/                    # Примеры
+│   ├── basic_example.py         # Простой пример
+│   ├── advanced_example.py      # Продвинутый пример
+│   └── sample_documents/        # Тестовые документы
 │
-└── docs/                        # Extended docs
-    ├── API.md                   # API reference
-    ├── FAQ.md                   # FAQs
-    ├── PERFORMANCE.md           # Benchmarks
-    └── MIGRATION.md             # Migration guide
+└── docs/                        # Расширенная документация
+    ├── API.md                   # Описание API
+    ├── FAQ.md                   # Часто задаваемые вопросы
+    ├── PERFORMANCE.md           # Бенчмарки
+    └── MIGRATION.md             # Миграция
 ```
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Быстрый Старт
+
+### Установка
 
 ```bash
+# Перейти в папку
 cd rag_knowledge_base
+
+# Установить зависимости
 pip install -r requirements.txt
+
+# Проверить установку
+python -c "import rag_module; print('✅ RAG модуль готов')"
 ```
+
+### Базовое Использование
 
 ```python
 from rag_module.manager import RAGManager
 
-# Initialize
+# Инициализация
 manager = RAGManager()
 
-# Add document
+# Добавить документ
 await manager.add_document(
-    file_path="contract.pdf",
+    file_path="контракт.pdf",
     doc_id="contract_2024"
 )
 
-# Search
+# Поиск
 results = await manager.search(
-    query="What are payment terms?",
+    query="Какие сроки оплаты?",
     top_k=3
 )
+
+print(results)
 ```
 
 ---
 
-## 📖 Documentation Map
+## 📚 Карта Документации
 
-1. **README.md** (you are here) - Overview
-2. **ARCHITECTURE.md** - Technical design
-3. **DEVELOPMENT.md** - How to develop
-4. **docs/API.md** - Complete API reference
-5. **tests/** - See test examples
-6. **examples/** - Working code
+Читайте в таком порядке:
+
+1. **README.md** (вы здесь) - Обзор и быстрый старт
+2. **ARCHITECTURE.md** - Техническое проектирование
+3. **DEVELOPMENT.md** - Как разрабатывать
+4. **docs/API.md** - Полная документация API
+5. **tests/** - Примеры тестов
+6. **examples/** - Рабочие примеры
 
 ---
 
-## 🔧 Configuration
+## ⚙️ Конфигурация
+
+### Переменные Окружения
 
 ```bash
-# Vector DB
+# Векторная БД
 VECTOR_DB_PATH=./data/vector_db
 VECTOR_DB_PERSIST=true
 
@@ -134,11 +148,11 @@ VECTOR_DB_PERSIST=true
 EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 EMBEDDING_DIMENSION=384
 
-# Chunking
+# Разбивка на куски
 CHUNK_SIZE=500
 CHUNK_OVERLAP=50
 
-# Retrieval
+# Поиск
 TOP_K_RESULTS=5
 SIMILARITY_THRESHOLD=0.3
 
@@ -147,88 +161,155 @@ LLM_MAX_TOKENS=2000
 LLM_TEMPERATURE=0.7
 ```
 
----
-
-## ✅ Phase 1 Features
-
-### Implemented
-- Document chunking (configurable)
-- Embedding generation (multi-language)
-- Vector store (ChromaDB)
-- Semantic search
-- Document CRUD
-
-### Planned
-- Hybrid search
-- Document versioning
-- Metadata filtering
-- Batch operations
+См. `rag_module/config.py` для значений по умолчанию.
 
 ---
 
-## 🔌 Integration with TG_bot
+## ✅ Фичи (Фаза 1)
+
+### Реализовано
+- [ ] Разбивка документов (настраиваемое размер)
+- [ ] Генерация embeddings (мультиязычные)
+- [ ] Векторное хранилище (ChromaDB)
+- [ ] Семантический поиск
+- [ ] Управление документами (CRUD)
+
+### Планируется (Фаза 2)
+- [ ] Гибридный поиск (семантика + ключевые слова)
+- [ ] Версионирование документов
+- [ ] Фильтрация по метаданным
+- [ ] Пакетные операции
+- [ ] Оптимизация производительности
+
+### Будущее (Фаза 3+)
+- [ ] Веб-интерфейс
+- [ ] REST API
+- [ ] Dashboard аналитики
+- [ ] Поддержка многопользовательства
+- [ ] Продвинутая фильтрация
+
+---
+
+## 🔌 Интеграция с TG_bot
+
+Модуль разработан для интеграции с основным проектом TG_bot:
 
 ```python
-# In main.py:
+# В main.py:
 from rag_knowledge_base.rag_module.manager import RAGManager
-from app.handlers import knowledge
+from app.handlers import knowledge  # Handler для Telegram
 
+# Knowledge handler использует RAGManager
 dispatcher.include_router(knowledge.router)
 ```
 
----
-
-## 📊 Technology Stack
-
-| Component | Technology | Why |
-|-----------|-----------|-----|
-| Vector DB | ChromaDB | Open-source, embedded, fast |
-| Embeddings | Sentence-Transformers | Multilingual, reliable |
-| Chunking | Custom | Full control |
-| Parsing | PyPDF2, python-docx | Standard, reliable |
-| Async | asyncio | Non-blocking I/O |
-| Testing | pytest | Industry standard |
+Подробно см. `INTEGRATION.md`
 
 ---
 
-## 🧪 Testing
+## 🛠️ Технологический Стек
+
+| Компонент | Технология | Причина |
+|-----------|-----------|----------|
+| **Векторная БД** | ChromaDB | Open-source, встроенная, быстрая |
+| **Embeddings** | Sentence-Transformers | Мультиязычная, надежная |
+| **Разбивка** | Custom | Полный контроль и оптимизация |
+| **Парсинг** | PyPDF2, python-docx | Стандартные, надежные |
+| **Async** | asyncio | Неблокирующий I/O |
+| **Тестирование** | pytest | Стандарт индустрии |
+
+---
+
+## 🧪 Тестирование
 
 ```bash
-# Run all tests
+# Все тесты
 pytest tests/
 
-# With coverage
+# С покрытием
 pytest tests/ --cov=rag_module
 
-# Specific test
+# Конкретный тест
 pytest tests/test_chunker.py -v
 ```
 
 ---
 
-## 🚫 Troubleshooting
+## 📊 Бенчмарки Производительности
 
-**ChromaDB not found?**  
-→ `pip install chromadb`
+(Будут обновлены после Фазы 1)
 
-**Vector dimension mismatch?**  
-→ Check embedding model consistency
+| Операция | Время | Память | Статус |
+|----------|-------|--------|--------|
+| Загрузка 100KB документа | TBD | TBD | 🔧 |
+| Создание embeddings | TBD | TBD | 🔧 |
+| Семантический поиск | TBD | TBD | 🔧 |
+| Хранение 1000 документов | TBD | TBD | 🔧 |
 
-**Search returns empty?**  
-→ Verify documents were added
-
-See `TROUBLESHOOTING.md` for more.
-
----
-
-## 📝 Roadmap
-
-**Week 1 (21-27 Dec)** - Core implementation  
-**Week 2 (28 Dec - 3 Jan)** - Integration & docs  
-**Week 3+** - Optimization & advanced features
+См. `docs/PERFORMANCE.md` для деталей.
 
 ---
 
-**Status:** 🔧 Active Development  
-**Last Updated:** 2025-12-21  
-**Maintainer:** Project Owner
+## 🐛 Решение Проблем
+
+Частые ошибки и решения:
+
+- **"ChromaDB не найден"** → `pip install chromadb`
+- **"Несовпадение размерности векторов"** → Проверьте согласованность модели
+- **"Поиск возвращает пусто"** → Проверьте, что документы добавлены
+
+Полный список см. в `TROUBLESHOOTING.md`
+
+---
+
+## 🤝 Внедрение Изменений
+
+При расширении модуля:
+
+1. Следуйте паттернам существующего кода
+2. Добавьте unit тесты для новых фич
+3. Обновите документацию
+4. Прочитайте DEVELOPMENT.md
+
+---
+
+## 📅 Roadmap
+
+### Неделя 1 (21-27 Дек)
+- ✅ Структура проекта
+- 🔧 Core services (chunker, embeddings, vector store)
+- 🔧 Manager orchestrator
+- 🔧 Базовые тесты
+
+### Неделя 2 (28 Дек - 3 Янв)
+- 🔮 File processor
+- 🔮 Integration тесты
+- 🔮 Документация
+- 🔮 Примеры
+
+### Неделя 3+
+- 🔮 Оптимизация производительности
+- 🔮 Продвинутые фичи
+- 🔮 Production hardening
+
+---
+
+## 📞 Поддержка
+
+Если у вас вопросы:
+1. Проверьте `TROUBLESHOOTING.md`
+2. Прочитайте `docs/FAQ.md`
+3. Посмотрите примеры в `tests/`
+4. Создайте GitHub issue
+
+---
+
+## 📄 Лицензия
+
+Тоже, что у основного проекта TG_bot.
+
+---
+
+**Последнее обновление:** 2025-12-21  
+**Статус:** 🔧 Активная разработка  
+**Ответственный:** Владелец проекта
