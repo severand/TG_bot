@@ -11,7 +11,9 @@ structlog>=23.0.0
 aiofiles>=23.0.0
 
 # Excel/XLS support for document parsing
-openpyxl>=3.10.0  # for .xlsx
+# Дата исправления: 2025-12-21 10:48
+# Исправление: Исправлена версия openpyxl (3.10.0 не существует, используем 3.0.10)
+openpyxl>=3.0.10  # for .xlsx (исправлена версия)
 xlrd>=2.0.0  # for old .xls format
 
 # OCR dependencies
