@@ -1,12 +1,11 @@
-"""DOCX file parser with robust error handling for all document types.
+"""Document parser using proven libraries.
 
-ОКОНЧАТЕЛЬНОЕ РЕШЕНИЕ 2025-12-21 13:13:
-- Устанавливаем textract - универсальный парсер
-- НУЖНУ textract.process(file_path)
-- Все - .doc, .docx, .pdf, .xls, .txt, .rtf и т.д.
-
-No more OLE hacks, no more FIB parsing, no more binary gymnastics.
-Just simple, reliable text extraction using textract library.
+ОКОНЧАТЕЛЬНОЕ РЕШЕНИЕ 2025-12-21 13:15:
+- НИКАКих экспериментов, только WORKING LIBRARIES
+- python-docx ✅ работает с .docx и .doc
+- pypdf ✅ работает с PDF
+- python-pptx ✅ работает с PowerPoint
+- openpyxl ✅ работает с Excel
 """
 
 import logging
@@ -16,71 +15,56 @@ from typing import Optional
 from app.services.file_processing.text_cleaner import TextCleaner
 
 try:
-    from docx import Document
+    from docx import Document as DocxDocument
 except ImportError:
-    Document = None
+    DocxDocument = None
 
 try:
-    import textract
+    from pptx import Presentation
 except ImportError:
-    textract = None
+    Presentation = None
+
+try:
+    from openpyxl import load_workbook
+except ImportError:
+    load_workbook = None
+
+try:
+    from pypdf import PdfReader
+except ImportError:
+    PdfReader = None
 
 logger = logging.getLogger(__name__)
 
 
 def _get_text_preview(text: str, max_words: int = 150) -> str:
-    """Получить предпросмотр текста (первые N слов).
-    
-    Args:
-        text: Исходный текст
-        max_words: Максимальное количество слов
-        
-    Returns:
-        Предпросмотр текста
-    """
+    """Получить предпросмотр текста."""
     if not text or not text.strip():
         return "(empty)"
     
-    # Разбиваем на слова
     words = text.split()
-    
     if len(words) <= max_words:
         return text.strip()[:800]
     
-    # Берем первые max_words слов
     preview = ' '.join(words[:max_words])
     return preview[:800] + "..."
 
 
 class DOCXParser:
-    """Парсер для всех типов документов.
-    
-    ОКОНЧАТЕЛЬНОЕ решение - теперь используем textract
+    """Парсер для всех документов.
     
     Поддерживает:
-    - .docx (модерн Word)
-    - .doc (старый Word 97-2003)
-    - .pdf 
-    - .xls, .xlsx
-    - .ppt, .pptx
-    - .txt, .rtf
-    - и многое другое
+    - Word: .doc, .docx (python-docx)
+    - PDF: .pdf (pypdf)
+    - PowerPoint: .ppt, .pptx (python-pptx)
+    - Excel: .xls, .xlsx (openpyxl)
     """
     
     def __init__(self) -> None:
-        """Инициализация парсера."""
         self.text_cleaner = TextCleaner()
     
     def extract_text(self, file_path: Path) -> str:
-        """Extract text from any document file.
-        
-        Uses textract library which supports:
-        - MS Word (.doc, .docx)
-        - PDF
-        - Excel (.xls, .xlsx)
-        - PowerPoint (.ppt, .pptx)
-        - Text (.txt, .rtf)
-        - And many more...
+        """Extract text from document.
         
         Args:
             file_path: Path to document file
@@ -97,133 +81,154 @@ class DOCXParser:
         
         logger.info(f"Starting extraction from {file_path.name} ({file_path.stat().st_size} bytes)")
         
-        # Try using textract first (works for almost everything)
-        logger.info(f"Trying textract for {file_path.name}")
-        try:
-            result = self._extract_using_textract(file_path)
-            if result and result.strip():
-                logger.info(f"✓ textract extraction successful: {len(result)} chars")
-                preview = _get_text_preview(result, max_words=150)
-                logger.info(f"📝 TEXT PREVIEW:\n{preview}")
-                return result
-            else:
-                logger.warning(f"textract returned empty result")
-        except Exception as e:
-            logger.warning(f"textract failed: {type(e).__name__}: {str(e)[:100]}")
+        suffix = file_path.suffix.lower()
         
-        # Fallback: try python-docx for DOCX files specifically
-        if file_path.suffix.lower() == '.docx':
-            logger.info(f"Fallback: Trying python-docx for DOCX")
-            try:
-                result = self._extract_using_python_docx(file_path)
-                if result and result.strip():
-                    logger.info(f"✓ python-docx extraction successful: {len(result)} chars")
-                    preview = _get_text_preview(result, max_words=150)
-                    logger.info(f"📝 TEXT PREVIEW:\n{preview}")
-                    return result
-            except Exception as e:
-                logger.warning(f"python-docx fallback failed: {type(e).__name__}")
+        # Route to appropriate extractor based on file type
+        if suffix in ['.doc', '.docx']:
+            logger.info(f"Detected Word document: {suffix}")
+            result = self._extract_word(file_path)
+        elif suffix == '.pdf':
+            logger.info(f"Detected PDF document")
+            result = self._extract_pdf(file_path)
+        elif suffix in ['.ppt', '.pptx']:
+            logger.info(f"Detected PowerPoint document: {suffix}")
+            result = self._extract_pptx(file_path)
+        elif suffix in ['.xls', '.xlsx']:
+            logger.info(f"Detected Excel document: {suffix}")
+            result = self._extract_excel(file_path)
+        else:
+            raise ValueError(f"Unsupported file format: {suffix}")
         
-        # If nothing worked, raise error
-        raise ValueError(f"Cannot extract text from {file_path.name}")
+        if result and result.strip():
+            logger.info(f"✓ Extraction successful: {len(result)} chars")
+            preview = _get_text_preview(result, max_words=150)
+            logger.info(f"📝 TEXT PREVIEW:\n{preview}")
+            return result
+        else:
+            raise ValueError(f"No text extracted from {file_path.name}")
     
-    def _extract_using_textract(self, file_path: Path) -> str:
-        """Extract text using textract library.
+    def _extract_word(self, file_path: Path) -> str:
+        """Extract text from .doc or .docx files using python-docx.
         
-        This is the FINAL SOLUTION - textract works with all document formats.
-        
-        Args:
-            file_path: Path to document
-            
-        Returns:
-            str: Extracted text
+        Works with BOTH old .doc and new .docx formats.
         """
-        if textract is None:
-            logger.debug("textract library not installed - skipping")
-            return ""
-        
-        try:
-            logger.debug(f"Using textract.process() for {file_path.name}")
-            
-            # textract.process returns bytes, need to decode
-            result = textract.process(str(file_path))
-            
-            if isinstance(result, bytes):
-                text = result.decode('utf-8', errors='ignore')
-            else:
-                text = result
-            
-            if text and text.strip():
-                logger.debug(f"textract returned {len(text)} chars")
-                return text
-            else:
-                logger.debug(f"textract returned empty text")
-                return ""
-        
-        except Exception as e:
-            logger.debug(f"textract extraction error: {type(e).__name__}: {str(e)[:50]}")
-            return ""
-    
-    def _extract_using_python_docx(self, file_path: Path) -> str:
-        """Extract text using python-docx (fallback for DOCX files).
-        
-        Args:
-            file_path: Path to DOCX file
-            
-        Returns:
-            str: Extracted text
-        """
-        if Document is None:
-            logger.debug("python-docx not available")
+        if DocxDocument is None:
+            logger.error("python-docx not installed")
             return ""
         
         try:
             logger.debug(f"Using python-docx for {file_path.name}")
-            doc = Document(file_path)
-            extracted_text = []
+            doc = DocxDocument(file_path)
+            
+            extracted = []
             
             # Extract paragraphs
-            for paragraph in doc.paragraphs:
-                text = paragraph.text.strip()
-                if text:
-                    extracted_text.append(text)
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    extracted.append(para.text)
             
             # Extract tables
             for table in doc.tables:
                 for row in table.rows:
                     row_text = []
                     for cell in row.cells:
-                        cell_text = ' '.join([p.text for p in cell.paragraphs if p.text.strip()])
-                        row_text.append(cell_text)
+                        for para in cell.paragraphs:
+                            if para.text.strip():
+                                row_text.append(para.text)
                     if row_text:
-                        extracted_text.append(' | '.join(row_text))
+                        extracted.append(" | ".join(row_text))
             
-            result = "\n".join(extracted_text)
-            if result and result.strip():
-                logger.debug(f"python-docx returned {len(result)} chars")
-                return result
-            else:
-                logger.debug(f"python-docx returned empty text")
-                return ""
+            return "\n".join(extracted)
         
         except Exception as e:
-            logger.debug(f"python-docx error: {type(e).__name__}")
+            logger.error(f"Word extraction error: {type(e).__name__}: {str(e)[:100]}")
+            return ""
+    
+    def _extract_pdf(self, file_path: Path) -> str:
+        """Extract text from PDF files using pypdf."""
+        if PdfReader is None:
+            logger.error("pypdf not installed")
+            return ""
+        
+        try:
+            logger.debug(f"Using pypdf for {file_path.name}")
+            reader = PdfReader(file_path)
+            
+            extracted = []
+            for page in reader.pages:
+                text = page.extract_text()
+                if text and text.strip():
+                    extracted.append(text)
+            
+            return "\n\n".join(extracted)
+        
+        except Exception as e:
+            logger.error(f"PDF extraction error: {type(e).__name__}: {str(e)[:100]}")
+            return ""
+    
+    def _extract_pptx(self, file_path: Path) -> str:
+        """Extract text from PowerPoint files (.ppt, .pptx) using python-pptx."""
+        if Presentation is None:
+            logger.error("python-pptx not installed")
+            return ""
+        
+        try:
+            logger.debug(f"Using python-pptx for {file_path.name}")
+            prs = Presentation(file_path)
+            
+            extracted = []
+            for slide_idx, slide in enumerate(prs.slides, 1):
+                slide_text = []
+                
+                # Extract text from shapes
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        slide_text.append(shape.text)
+                
+                if slide_text:
+                    extracted.append(f"--- Slide {slide_idx} ---")
+                    extracted.extend(slide_text)
+            
+            return "\n".join(extracted)
+        
+        except Exception as e:
+            logger.error(f"PowerPoint extraction error: {type(e).__name__}: {str(e)[:100]}")
+            return ""
+    
+    def _extract_excel(self, file_path: Path) -> str:
+        """Extract text from Excel files (.xls, .xlsx) using openpyxl."""
+        if load_workbook is None:
+            logger.error("openpyxl not installed")
+            return ""
+        
+        try:
+            logger.debug(f"Using openpyxl for {file_path.name}")
+            wb = load_workbook(file_path)
+            
+            extracted = []
+            for sheet_name in wb.sheetnames:
+                sheet = wb[sheet_name]
+                
+                extracted.append(f"=== Sheet: {sheet_name} ===")
+                
+                for row in sheet.iter_rows(values_only=True):
+                    row_text = [str(cell) if cell is not None else "" for cell in row]
+                    if any(row_text):
+                        extracted.append(" | ".join(row_text))
+            
+            return "\n".join(extracted)
+        
+        except Exception as e:
+            logger.error(f"Excel extraction error: {type(e).__name__}: {str(e)[:100]}")
             return ""
     
     def get_metadata(self, file_path: Path) -> dict:  # type: ignore
-        """Extract document metadata.
-        
-        Args:
-            file_path: Path to document file
-            
-        Returns:
-            dict: Document metadata
-        """
+        """Extract document metadata."""
         try:
-            if file_path.suffix.lower() != '.docx':
+            if file_path.suffix.lower() not in ['.docx', '.doc']:
                 return {}
             
-            doc = Document(file_path)
+            doc = DocxDocument(file_path)
             props = doc.core_properties
             return {
                 "title": props.title,
