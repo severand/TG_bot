@@ -16,13 +16,31 @@ Quick Start:
 
 from rag_module.services.chunker import Chunker, ChunkingError
 from rag_module.services.embeddings import EmbeddingService, EmbeddingError
-from rag_module.services.vector_store import ChromaVectorStore, VectorStoreError
-from rag_module.services.retriever import Retriever, RetrieverError
-from rag_module.services.manager import (
-    RAGManager,
-    RAGManagerError,
-    DocumentNotFoundError,
-)
+
+# Lazy imports for ChromaDB-dependent modules to avoid DLL issues on import
+def __getattr__(name):
+    if name == "ChromaVectorStore":
+        from rag_module.services.vector_store import ChromaVectorStore
+        return ChromaVectorStore
+    elif name == "VectorStoreError":
+        from rag_module.services.vector_store import VectorStoreError
+        return VectorStoreError
+    elif name == "Retriever":
+        from rag_module.services.retriever import Retriever
+        return Retriever
+    elif name == "RetrieverError":
+        from rag_module.services.retriever import RetrieverError
+        return RetrieverError
+    elif name == "RAGManager":
+        from rag_module.services.manager import RAGManager
+        return RAGManager
+    elif name == "RAGManagerError":
+        from rag_module.services.manager import RAGManagerError
+        return RAGManagerError
+    elif name == "DocumentNotFoundError":
+        from rag_module.services.manager import DocumentNotFoundError
+        return DocumentNotFoundError
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # Main interface (USE THIS)
