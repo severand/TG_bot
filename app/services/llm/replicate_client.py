@@ -2,6 +2,11 @@
 
 Provides streaming support for various AI models available on Replicate.
 Includes fallback to OpenAI if Replicate fails.
+
+Fixes 2025-12-21 14:23:
+- Увеличен timeout для больших документов (30s -> 180s)
+- httpx настройка таймаута через environment
+- Логирование размера документа
 """
 
 import logging
@@ -55,11 +60,16 @@ class ReplicateClient:
         # CRITICAL: Set the API token as environment variable
         os.environ["REPLICATE_API_TOKEN"] = api_token
         
+        # FIX: Increase timeout for large documents (default 30s -> 180s)
+        # This prevents "timed out" errors on big docs
+        os.environ["REPLICATE_TIMEOUT"] = "180"
+        
         self.client = replicate
         self.api_token = api_token
         self.model = model
         
         logger.info(f"Replicate client initialized with model: {model}")
+        logger.info("Replicate timeout set to 180s for large documents")
     
     def _get_model_input(
         self,
@@ -186,7 +196,7 @@ class ReplicateClient:
         try:
             logger.info(
                 f"Calling Replicate {self.model} for streaming analysis "
-                f"(doc: {len(document_text)} chars)"
+                f"(doc: {len(document_text)} chars, prompt: {len(full_prompt)} chars)"
             )
             
             # Build input with proper format
@@ -197,7 +207,7 @@ class ReplicateClient:
                 max_tokens=4096,
             )
             
-            # Stream from Replicate
+            # Stream from Replicate (with 180s timeout set in __init__)
             for output in self.client.stream(self.model, input=input_data):
                 if output:
                     yield str(output)
