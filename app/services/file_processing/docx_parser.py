@@ -1,15 +1,13 @@
 """DOCX file parser with robust error handling for old .doc files.
 
+Фиксы 2025-12-21 11:33 - ПРЕДПРОСМОТР ТЕКСТА В ЛОГАХ:
+- Добавлен предпросмотр 100-150 слов после каждого извлечения
+- Показывает начало текста для проверки качества
+- Работает для всех методов: python-docx, ZIP, OLE, Binary
+
 Фиксы 2025-12-21 11:24 - ИСПРАВЛЕН FLOW OLE:
 - ZIP fallback больше НЕ выбрасывает исключение
 - OLE extraction ГАРАНТИРОВАННО вызывается после ZIP
-- Явное логирование каждого шага
-- Правильный порядок: python-docx → ZIP → OLE → Binary
-
-Фиксы 2025-12-21 11:20 - КРИТИЧЕСКИЙ ПОРЯДОК:
-- OLE extraction ПЕРЕД binary (правильный порядок методов)
-- python-docx → ZIP → OLE (olefile) → Binary
-- OLE должен быть вторичным методом, прежде чем падать на бинарный
 
 Handles extraction of text content from Microsoft Word (.docx) files
 using python-docx library with graceful fallback for corrupted files.
@@ -47,25 +45,43 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _get_text_preview(text: str, max_words: int = 150) -> str:
+    """Получить предпросмотр текста (первые N слов).
+    
+    Args:
+        text: Исходный текст
+        max_words: Максимальное количество слов
+        
+    Returns:
+        Предпросмотр текста
+    """
+    if not text or not text.strip():
+        return "(empty)"
+    
+    # Разбиваем на слова
+    words = text.split()
+    
+    if len(words) <= max_words:
+        return text.strip()[:800]  # Максимум 800 символов
+    
+    # Берем первые max_words слов
+    preview = ' '.join(words[:max_words])
+    return preview[:800] + "..."
+
+
 class DOCXParser:
-    """Parser for DOCX (Microsoft Word) documents.
+    """Парсер для DOCX (документов Microsoft Word).
     
-    Supports both valid DOCX files and old .doc files.
-    Uses python-docx for valid files, ZIP extraction fallback for corrupted,
-    OLE extraction with olefile for old binary .doc, binary as last resort.
-    Handles incomplete ZIP structures and corrupted XML gracefully.
-    
-    Cleans extracted text from binary sources to remove garbage.
-    
-    EXTRACTION ORDER (GUARANTEED):
-    1. python-docx (valid .docx files)
-    2. ZIP extraction (corrupted .docx with ZIP structure)
-    3. OLE extraction with olefile (old .doc files) ← ALWAYS TRIED
-    4. Binary extraction (pure binary, no OLE support)
+    Поддерживает .docx и старые .doc файлы.
+    Порядок извлечения:
+    1. python-docx (.docx файлы)
+    2. ZIP extraction (поврежденные .docx)
+    3. OLE extraction (старые .doc)
+    4. Binary extraction (последняя попытка)
     """
     
     def __init__(self) -> None:
-        """Initialize parser with text cleaner."""
+        """Инициализация парсера."""
         self.text_cleaner = TextCleaner()
     
     def extract_text(self, file_path: Path) -> str:
@@ -124,6 +140,9 @@ class DOCXParser:
             if result.strip():
                 logger.info(f"✓ Successfully extracted {len(result)} chars from {file_path.name} "
                           f"({paragraph_count} paragraphs, {table_count} tables)")
+                # НОВОЕ: Предпросмотр текста
+                preview = _get_text_preview(result, max_words=150)
+                logger.info(f"📝 TEXT PREVIEW (first 150 words):\n{preview}")
                 return result
             else:
                 logger.warning(f"python-docx returned empty text, trying fallback")
@@ -141,6 +160,9 @@ class DOCXParser:
             result = self._extract_from_zip(file_path)
             if result and result.strip():
                 logger.info(f"✓ ZIP extraction successful: {len(result)} chars")
+                # НОВОЕ: Предпросмотр текста
+                preview = _get_text_preview(result, max_words=150)
+                logger.info(f"📝 TEXT PREVIEW (first 150 words):\n{preview}")
                 return result
             else:
                 logger.info(f"ZIP extraction returned empty result, continuing to OLE method...")
@@ -151,12 +173,15 @@ class DOCXParser:
             logger.warning(f"ZIP fallback failed with {type(e).__name__}, continuing to OLE method...")
         
         # Fallback 2: Extract using OLE (for old MS Word 97-2003 binary .doc)
-        # NOTE: This is ALWAYS tried if python-docx and ZIP failed
         logger.info(f"Step 2: Trying OLE extraction for {file_path.name}")
         try:
             result = self._extract_from_ole_doc(file_path)
             if result and result.strip():
                 logger.info(f"✓ OLE extraction successful: {len(result)} chars (before cleaning)")
+                
+                # НОВОЕ: Предпросмотр ДО очистки
+                preview = _get_text_preview(result, max_words=150)
+                logger.info(f"📝 TEXT PREVIEW (OLE, before cleaning):\n{preview}")
                 
                 # Clean the extraction result
                 logger.info(f"Cleaning extracted text from OLE...")
@@ -164,6 +189,9 @@ class DOCXParser:
                 
                 if cleaned_result and self.text_cleaner.is_text_usable(cleaned_result):
                     logger.info(f"✓ Cleaned OLE text: {len(cleaned_result)} chars (quality OK)")
+                    # НОВОЕ: Предпросмотр ПОСЛЕ очистки
+                    preview = _get_text_preview(cleaned_result, max_words=150)
+                    logger.info(f"📝 TEXT PREVIEW (OLE, after cleaning):\n{preview}")
                     return cleaned_result
                 else:
                     logger.warning(f"Cleaned text quality poor, returning raw OLE text")
@@ -182,12 +210,19 @@ class DOCXParser:
             if result and result.strip():
                 logger.info(f"✓ Binary extraction successful: {len(result)} chars (before cleaning)")
                 
+                # НОВОЕ: Предпросмотр ДО очистки
+                preview = _get_text_preview(result, max_words=150)
+                logger.info(f"📝 TEXT PREVIEW (Binary, before cleaning):\n{preview}")
+                
                 # Clean extracted text
                 logger.info(f"Cleaning extracted text from binary...")
                 cleaned_result = self.text_cleaner.clean_extracted_text(result, aggressive=False)
                 
                 if cleaned_result and self.text_cleaner.is_text_usable(cleaned_result):
                     logger.info(f"✓ Cleaned binary text: {len(cleaned_result)} chars (quality OK)")
+                    # НОВОЕ: Предпросмотр ПОСЛЕ очистки
+                    preview = _get_text_preview(cleaned_result, max_words=150)
+                    logger.info(f"📝 TEXT PREVIEW (Binary, after cleaning):\n{preview}")
                     return cleaned_result
                 else:
                     logger.warning(f"Cleaned text quality poor, returning raw binary text")
@@ -356,11 +391,9 @@ class DOCXParser:
         
         except BadZipFile:
             logger.debug(f"ZIP: file is not a valid ZIP archive (not a DOCX)")
-            # Return empty string instead of raising - allows OLE to be tried
             return ""
         except Exception as e:
             logger.debug(f"ZIP extraction error: {type(e).__name__}: {str(e)[:50]}")
-            # Return empty string instead of raising - allows OLE to be tried
             return ""
         
         result = "\n\n".join(all_text)
