@@ -12,7 +12,7 @@ from aiogram import Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.bot import create_bot, setup_bot_commands
-from app.config import settings
+from app.config import get_settings  # Fixed: use get_settings() function
 
 # Import all handlers
 from app.handlers import (
@@ -41,6 +41,9 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     """Main function to start the bot."""
     logger.info("Starting Uh Bot...")
+    
+    # Get settings
+    settings = get_settings()
     
     # Create bot instance
     bot = create_bot(settings.TG_BOT_TOKEN)
