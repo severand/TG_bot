@@ -1,61 +1,39 @@
 """Specialized parser for old MS Word .doc binary format.
 
-Uses LibreOffice (soffice) to convert .doc to .docx on the fly.
-LibreOffice works perfectly with old Russian .doc files (CP1251).
-
-Requirements:
-- LibreOffice installed and in PATH
-- soffice command available
-
-Windows:
-- Install LibreOffice: https://www.libreoffice.org/
-- Add "C:\\Program Files\\LibreOffice\\program" to PATH
+Uses Aspose.Words for robust .doc parsing without external dependencies (LibreOffice/Antiword).
+This is a pure Python solution (via pip) that works in the cloud.
 """
 
 import logging
-import subprocess
-import shutil
-import uuid
 from pathlib import Path
 from typing import Optional
+
+# Try to import aspose.words, handle if missing
+try:
+    import aspose.words as aw
+except ImportError:
+    aw = None
 
 logger = logging.getLogger(__name__)
 
 
 class DOCParser:
-    """Specialized parser for old binary .doc format using LibreOffice.
+    """Specialized parser for old binary .doc format using Aspose.Words.
     
-    Old MS Word .doc files are binary and hard to parse.
-    LibreOffice converts them to .docx perfectly.
+    This solution:
+    1. Does NOT require LibreOffice or Antiword
+    2. Installs via pip (aspose-words)
+    3. Works on Windows/Linux/macOS automatically
+    4. Handles encodings (Russian CP1251) correctly
     """
     
     def __init__(self) -> None:
-        self._soffice_path = self._find_libreoffice()
-        if self._soffice_path:
-            logger.info(f"✓ LibreOffice found at: {self._soffice_path}")
-        else:
-            logger.warning("⚠ LibreOffice (soffice) not found!")
-    
-    @staticmethod
-    def _find_libreoffice() -> Optional[str]:
-        """Find path to LibreOffice executable."""
-        # Check in PATH
-        if shutil.which("soffice"):
-            return "soffice"
-        
-        # Check common Windows paths
-        paths = [
-            r"C:\Program Files\LibreOffice\program\soffice.exe",
-            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
-        ]
-        for path in paths:
-            if Path(path).exists():
-                return path
-        
-        return None
+        if aw is None:
+            logger.warning("⚠ aspose-words not installed. DOC parsing will fail.")
+            logger.warning("pip install aspose-words")
     
     def extract_text(self, file_path: Path) -> str:
-        """Extract text from .doc file by converting to .docx with LibreOffice.
+        """Extract text from .doc file using Aspose.Words.
         
         Args:
             file_path: Path to .doc file
@@ -65,84 +43,44 @@ class DOCParser:
             
         Raises:
             FileNotFoundError: If file doesn't exist
-            ValueError: If LibreOffice failed
+            ValueError: If extraction fails
         """
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
         
-        if not self._soffice_path:
-            raise ValueError(
-                "LibreOffice not found! Please install LibreOffice and add to PATH. "
-                "Download: https://www.libreoffice.org/"
-            )
+        if aw is None:
+            raise ValueError("aspose-words library is missing. Run: pip install aspose-words")
         
-        logger.info(f"Converting {file_path.name} to .docx using LibreOffice...")
-        
-        # Create temp output dir in the same folder
-        output_dir = file_path.parent
+        logger.info(f"Extracting text from {file_path.name} using Aspose.Words...")
         
         try:
-            # Convert .doc to .docx
-            # soffice --headless --convert-to docx "file.doc" --outdir "output_dir"
-            cmd = [
-                self._soffice_path,
-                "--headless",
-                "--convert-to",
-                "docx",
-                str(file_path),
-                "--outdir",
-                str(output_dir)
-            ]
+            # Load document
+            # Aspose automatically detects format and encoding
+            doc = aw.Document(str(file_path))
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
+            # Extract text
+            text = doc.get_text()
             
-            if result.returncode != 0:
-                logger.error(f"LibreOffice conversion failed: {result.stderr}")
-                raise ValueError(f"LibreOffice conversion failed: {result.stderr}")
+            # Clean up evaluation watermark if present
+            # Aspose adds: "Evaluation Only. Created with Aspose.Words..."
+            if "Evaluation Only. Created with Aspose.Words." in text:
+                logger.info("Removing Aspose evaluation watermark")
+                text = text.replace("Evaluation Only. Created with Aspose.Words. Copyright 2003-2023 Aspose Pty Ltd.", "")
+                # Remove common header/footer evaluation artifacts
+                lines = text.splitlines()
+                cleaned_lines = [
+                    line for line in lines 
+                    if "Created with Aspose.Words" not in line 
+                    and "Evaluation Only" not in line
+                ]
+                text = "\n".join(cleaned_lines)
             
-            # Find the converted file (same name but .docx)
-            docx_path = output_dir / (file_path.stem + ".docx")
-            
-            if not docx_path.exists():
-                raise ValueError(f"Converted .docx not found at {docx_path}")
-            
-            logger.info(f"✓ Conversion successful: {docx_path.name}")
-            
-            # Now extract text from the new .docx using python-docx
-            # We import here to avoid circular dependency
-            from docx import Document
-            
-            doc = Document(docx_path)
-            extracted_text = []
-            
-            for para in doc.paragraphs:
-                if para.text.strip():
-                    extracted_text.append(para.text)
-            
-            for table in doc.tables:
-                for row in table.rows:
-                    row_text = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-                    if row_text:
-                        extracted_text.append(" | ".join(row_text))
-            
-            text = "\n".join(extracted_text)
-            
-            # Clean up the temporary .docx file
-            try:
-                docx_path.unlink()
-            except Exception:
-                pass
-            
-            if text.strip():
-                return text
+            if text and text.strip():
+                logger.info(f"✓ Aspose extraction successful: {len(text)} chars")
+                return text.strip()
             else:
                 raise ValueError("Extracted text is empty")
-
+                
         except Exception as e:
-            logger.error(f"Error processing .doc file: {e}")
-            raise ValueError(f"Failed to process .doc file: {e}")
+            logger.error(f"Aspose extraction error: {e}")
+            raise ValueError(f"Failed to extract text from .doc: {e}")
