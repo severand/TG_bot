@@ -1,17 +1,15 @@
 """DOCX file parser with robust error handling for old .doc files.
 
+Фиксы 2025-12-21 11:24 - ИСПРАВЛЕН FLOW OLE:
+- ZIP fallback больше НЕ выбрасывает исключение
+- OLE extraction ГАРАНТИРОВАННО вызывается после ZIP
+- Явное логирование каждого шага
+- Правильный порядок: python-docx → ZIP → OLE → Binary
+
 Фиксы 2025-12-21 11:20 - КРИТИЧЕСКИЙ ПОРЯДОК:
 - OLE extraction ПЕРЕД binary (правильный порядок методов)
 - python-docx → ZIP → OLE (olefile) → Binary
 - OLE должен быть вторичным методом, прежде чем падать на бинарный
-
-Фиксы 2025-12-21 10:45 - ПОДДЕРЖКА СТАРЫХ .DOC ФАЙЛОВ:
-- Добавлен метод _extract_from_ole_doc() для чтения OLE структуры
-- Использует библиотеку olefile для MS Word 97-2003 формата
-- Извлечение текста из потоков WordDocument и 1Table
-- Автоматическое определение кодировки (cp1251 для русского)
-- Лучшая очистка текста с удалением служебных символов
-- Улучшена цепочка fallback методов
 
 Handles extraction of text content from Microsoft Word (.docx) files
 using python-docx library with graceful fallback for corrupted files.
@@ -59,10 +57,10 @@ class DOCXParser:
     
     Cleans extracted text from binary sources to remove garbage.
     
-    EXTRACTION ORDER:
+    EXTRACTION ORDER (GUARANTEED):
     1. python-docx (valid .docx files)
     2. ZIP extraction (corrupted .docx with ZIP structure)
-    3. OLE extraction with olefile (old .doc files) - BEFORE BINARY
+    3. OLE extraction with olefile (old .doc files) ← ALWAYS TRIED
     4. Binary extraction (pure binary, no OLE support)
     """
     
@@ -138,74 +136,68 @@ class DOCXParser:
             logger.info(f"This might be an old .doc file, trying ZIP fallback...")
         
         # Fallback 1: Extract directly from ZIP (for .docx-like .doc files)
+        logger.info(f"Step 1: Trying ZIP extraction for {file_path.name}")
         try:
-            logger.info(f"Using ZIP fallback for {file_path.name}")
             result = self._extract_from_zip(file_path)
-            if result.strip():
-                logger.info(f"✓ ZIP fallback extracted {len(result)} chars")
+            if result and result.strip():
+                logger.info(f"✓ ZIP extraction successful: {len(result)} chars")
                 return result
             else:
-                logger.warning(f"ZIP fallback extracted 0 chars, trying OLE method...")
+                logger.info(f"ZIP extraction returned empty result, continuing to OLE method...")
         
+        except BadZipFile:
+            logger.info(f"File is not a ZIP archive, continuing to OLE method...")
         except Exception as e:
-            logger.warning(f"ZIP fallback failed: {type(e).__name__}: {str(e)[:100]}")
-            logger.info(f"Trying OLE method for old .doc files...")
+            logger.warning(f"ZIP fallback failed with {type(e).__name__}, continuing to OLE method...")
         
-        # Fallback 2: Extract using OLE (for old MS Word 97-2003 binary .doc) - BEFORE BINARY
+        # Fallback 2: Extract using OLE (for old MS Word 97-2003 binary .doc)
+        # NOTE: This is ALWAYS tried if python-docx and ZIP failed
+        logger.info(f"Step 2: Trying OLE extraction for {file_path.name}")
         try:
-            logger.info(f"Using OLE method for {file_path.name}")
             result = self._extract_from_ole_doc(file_path)
-            if result.strip():
-                logger.info(f"✓ OLE method extracted {len(result)} chars (before cleaning)")
+            if result and result.strip():
+                logger.info(f"✓ OLE extraction successful: {len(result)} chars (before cleaning)")
                 
-                # Clean the binary extraction result
+                # Clean the extraction result
                 logger.info(f"Cleaning extracted text from OLE...")
                 cleaned_result = self.text_cleaner.clean_extracted_text(result, aggressive=True)
                 
                 if cleaned_result and self.text_cleaner.is_text_usable(cleaned_result):
-                    logger.info(f"✓ Cleaned text: {len(cleaned_result)} chars (quality OK)")
-                    # Show preview
-                    preview = self.text_cleaner.get_preview(cleaned_result, max_lines=3)
-                    logger.debug(f"Text preview:\n{preview}")
+                    logger.info(f"✓ Cleaned OLE text: {len(cleaned_result)} chars (quality OK)")
                     return cleaned_result
                 else:
-                    logger.warning(f"Cleaned text quality is poor, returning raw text")
+                    logger.warning(f"Cleaned text quality poor, returning raw OLE text")
                     return result
             else:
-                logger.warning(f"OLE method extracted 0 chars, trying binary method...")
+                logger.info(f"OLE extraction returned empty result, continuing to binary method...")
         
         except Exception as e:
-            logger.warning(f"OLE method failed: {type(e).__name__}: {str(e)[:100]}")
-            logger.info(f"Trying primitive binary extraction as last resort...")
+            logger.warning(f"OLE extraction failed with {type(e).__name__}: {str(e)[:100]}")
+            logger.info(f"Continuing to binary extraction as last resort...")
         
         # Fallback 3: Extract from binary old .doc format (last resort)
+        logger.info(f"Step 3: Trying binary extraction for {file_path.name}")
         try:
-            logger.info(f"Using binary fallback for {file_path.name}")
             result = self._extract_from_binary_doc(file_path)
-            if result.strip():
-                # Clean the binary extraction result
-                logger.info(f"✓ Binary fallback extracted {len(result)} chars (before cleaning)")
+            if result and result.strip():
+                logger.info(f"✓ Binary extraction successful: {len(result)} chars (before cleaning)")
                 
                 # Clean extracted text
                 logger.info(f"Cleaning extracted text from binary...")
                 cleaned_result = self.text_cleaner.clean_extracted_text(result, aggressive=False)
                 
                 if cleaned_result and self.text_cleaner.is_text_usable(cleaned_result):
-                    logger.info(f"✓ Cleaned text: {len(cleaned_result)} chars (quality OK)")
-                    # Show preview
-                    preview = self.text_cleaner.get_preview(cleaned_result, max_lines=3)
-                    logger.debug(f"Text preview:\n{preview}")
+                    logger.info(f"✓ Cleaned binary text: {len(cleaned_result)} chars (quality OK)")
                     return cleaned_result
                 else:
-                    logger.warning(f"Cleaned text quality is poor, returning raw text")
+                    logger.warning(f"Cleaned text quality poor, returning raw binary text")
                     return result
             else:
-                logger.warning(f"Binary fallback extracted 0 chars - file may be empty or corrupted")
-                # Return empty instead of raising to show file was processed
+                logger.warning(f"Binary extraction returned empty result")
                 return ""
         
         except Exception as e:
-            logger.error(f"Binary fallback also failed: {type(e).__name__}: {e}")
+            logger.error(f"Binary extraction failed: {type(e).__name__}: {e}")
             raise ValueError(f"Invalid DOCX/DOC file: Cannot extract text using any method") from e
     
     def _extract_from_ole_doc(self, file_path: Path) -> str:
@@ -218,38 +210,39 @@ class DOCXParser:
             file_path: Path to .doc file
             
         Returns:
-            str: Extracted text
+            str: Extracted text (empty string if OLE not available or file not OLE)
         """
         if olefile is None:
-            logger.warning("olefile library not installed. Install with: pip install olefile>=0.46")
+            logger.debug("olefile library not installed - skipping OLE extraction")
             return ""
         
         try:
+            # Check if it's actually an OLE file
             if not olefile.isOleFile(str(file_path)):
-                logger.warning(f"File {file_path.name} is not an OLE document")
+                logger.debug(f"File is not OLE format - OLE extraction not applicable")
                 return ""
             
             ole = olefile.OleFileIO(str(file_path))
-            logger.info(f"Successfully opened OLE file {file_path.name}")
+            logger.debug(f"Successfully opened OLE file {file_path.name}")
             
             text_parts = []
             
             # Try to extract from WordDocument stream
             if ole.exists('WordDocument'):
-                logger.info(f"Found WordDocument stream in {file_path.name}")
+                logger.debug(f"Found WordDocument stream")
                 try:
                     stream = ole.openstream('WordDocument')
                     data = stream.read()
                     text = self._extract_text_from_word_stream(data)
-                    if text.strip():
+                    if text and text.strip():
                         text_parts.append(text)
-                        logger.info(f"Extracted {len(text)} chars from WordDocument")
+                        logger.debug(f"Extracted {len(text)} chars from WordDocument")
                 except Exception as e:
-                    logger.warning(f"Failed to extract from WordDocument: {type(e).__name__}: {e}")
+                    logger.debug(f"Failed to extract from WordDocument: {type(e).__name__}")
             
             # Try to extract from 1Table stream (contains formatting and text)
             if ole.exists('1Table'):
-                logger.info(f"Found 1Table stream in {file_path.name}")
+                logger.debug(f"Found 1Table stream")
                 try:
                     stream = ole.openstream('1Table')
                     data = stream.read()
@@ -264,27 +257,26 @@ class DOCXParser:
                             
                             if len(text) > 50:
                                 text_parts.append(text)
-                                logger.info(f"Extracted {len(text)} chars from 1Table (encoding: {encoding})")
+                                logger.debug(f"Extracted {len(text)} chars from 1Table using {encoding}")
                                 break
                         except Exception:
                             continue
                 
                 except Exception as e:
-                    logger.warning(f"Failed to extract from 1Table: {type(e).__name__}: {e}")
+                    logger.debug(f"Failed to extract from 1Table: {type(e).__name__}")
             
             ole.close()
-            logger.info("OLE file closed")
             
             result = '\n\n'.join(text_parts)
-            if result.strip():
-                logger.info(f"✓ OLE method extracted {len(result)} chars total")
+            if result and result.strip():
+                logger.info(f"OLE extraction successful: {len(result)} chars total")
                 return result
             else:
-                logger.warning(f"OLE method could not find any text")
+                logger.debug(f"OLE extraction found no text")
                 return ""
         
         except Exception as e:
-            logger.error(f"OLE extraction error: {type(e).__name__}: {e}")
+            logger.debug(f"OLE extraction error: {type(e).__name__}: {str(e)[:50]}")
             return ""
     
     def _extract_text_from_word_stream(self, data: bytes) -> str:
@@ -313,7 +305,6 @@ class DOCXParser:
                     text = ' '.join(words)
                     if len(text) > 100:  # Minimum 100 characters
                         text_parts.append(text)
-                        logger.debug(f"Found {len(words)} words using {encoding}")
                         break
             except Exception:
                 continue
@@ -331,56 +322,49 @@ class DOCXParser:
             file_path: Path to DOCX file
             
         Returns:
-            str: Extracted text from XML
+            str: Extracted text from XML (empty string if not a ZIP or no text found)
         """
-        logger.info(f"Extracting text from ZIP structure in {file_path.name}")
+        logger.debug(f"ZIP extraction: checking if file is ZIP archive")
         
         all_text = []
         
         try:
             with ZipFile(file_path, 'r') as docx_zip:
                 file_list = docx_zip.namelist()
-                logger.debug(f"ZIP contains {len(file_list)} files: {', '.join(file_list[:5])}...")
+                logger.debug(f"ZIP contains {len(file_list)} files")
                 
                 # Try document.xml first (main content)
                 if 'word/document.xml' in file_list:
                     try:
                         text = self._extract_text_from_xml(docx_zip, 'word/document.xml')
-                        if text.strip():
+                        if text and text.strip():
                             all_text.append(text)
-                            logger.info(f"Extracted {len(text)} chars from document.xml")
-                        else:
-                            logger.debug("document.xml exists but is empty or has no text elements")
+                            logger.debug(f"ZIP: extracted {len(text)} chars from document.xml")
                     except Exception as e:
-                        logger.warning(f"Failed to parse document.xml: {type(e).__name__}: {e}")
+                        logger.debug(f"ZIP: failed to parse document.xml: {type(e).__name__}")
                 
-                # Try other XML files as fallback (headers, footers, comments)
-                xml_files_tried = 0
+                # Try other XML files as fallback
                 for file_name in file_list:
-                    if file_name.endswith('.xml') and 'word/' in file_name:
-                        if file_name != 'word/document.xml':
-                            try:
-                                text = self._extract_text_from_xml(docx_zip, file_name)
-                                if text.strip():
-                                    all_text.append(text)
-                                    xml_files_tried += 1
-                                    logger.debug(f"Extracted {len(text)} chars from {file_name}")
-                            except Exception as e:
-                                logger.debug(f"Failed to process {file_name}: {type(e).__name__}")
-                
-                if xml_files_tried > 0:
-                    logger.info(f"Extracted text from {xml_files_tried} additional XML files")
+                    if file_name.endswith('.xml') and 'word/' in file_name and file_name != 'word/document.xml':
+                        try:
+                            text = self._extract_text_from_xml(docx_zip, file_name)
+                            if text and text.strip():
+                                all_text.append(text)
+                                logger.debug(f"ZIP: extracted {len(text)} chars from {file_name}")
+                        except Exception:
+                            continue
         
-        except BadZipFile as e:
-            logger.error(f"Not a valid ZIP/DOCX file: {e}")
-            raise ValueError(f"File is not a valid DOCX (ZIP): {e}") from e
-        
+        except BadZipFile:
+            logger.debug(f"ZIP: file is not a valid ZIP archive (not a DOCX)")
+            # Return empty string instead of raising - allows OLE to be tried
+            return ""
         except Exception as e:
-            logger.error(f"ZIP extraction error: {type(e).__name__}: {e}")
-            raise
+            logger.debug(f"ZIP extraction error: {type(e).__name__}: {str(e)[:50]}")
+            # Return empty string instead of raising - allows OLE to be tried
+            return ""
         
         result = "\n\n".join(all_text)
-        logger.info(f"ZIP fallback extracted {len(result)} chars total")
+        logger.debug(f"ZIP extraction result: {len(result)} chars total")
         return result
     
     def _extract_text_from_xml(self, docx_zip: ZipFile, xml_path: str) -> str:
@@ -399,7 +383,6 @@ class DOCXParser:
             xml_content = docx_zip.read(xml_path).decode('utf-8', errors='ignore')
             
             if not xml_content.strip():
-                logger.debug(f"{xml_path} is empty")
                 return ""
             
             # Try to parse as XML
@@ -418,16 +401,13 @@ class DOCXParser:
                         text_parts.append(elem.text)
                 
                 text = ''.join(text_parts)
-                logger.debug(f"XML parsing found {len(text_elements)} text elements")
                 return text
             
-            except ET.ParseError as pe:
+            except ET.ParseError:
                 # If XML parsing fails, extract plain text from corrupted content
-                logger.debug(f"XML parsing failed for {xml_path} ({pe}), extracting plain text")
                 return self._extract_plain_text_from_corrupted_xml(xml_content)
         
-        except Exception as e:
-            logger.warning(f"Error processing {xml_path}: {type(e).__name__}: {e}")
+        except Exception:
             return ""
     
     def _extract_from_binary_doc(self, file_path: Path) -> str:
@@ -454,14 +434,14 @@ class DOCXParser:
             # Check if it's OLE format (MS Office binary)
             is_ole = content[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
             if is_ole:
-                logger.info(f"File appears to be OLE format (MS Office binary .doc)")
+                logger.debug(f"Binary: file is OLE format (MS Office binary .doc)")
             
             # Strategy 1: Look for null-separated text blocks (common in MS Word)
             text_parts = self._extract_text_from_null_blocks(content)
             if text_parts:
                 text = ' '.join(text_parts)
-                if len(text) > 50:  # Only if we got substantial text
-                    logger.info(f"Found {len(text)} chars using null-block method")
+                if len(text) > 50:
+                    logger.debug(f"Binary: found {len(text)} chars using null-block method")
                     return text.strip()
             
             # Strategy 2: Look for continuous printable strings
@@ -469,19 +449,19 @@ class DOCXParser:
             if text_parts:
                 text = ' '.join(text_parts)
                 if len(text) > 50:
-                    logger.info(f"Found {len(text)} chars using continuous string method")
+                    logger.debug(f"Binary: found {len(text)} chars using continuous string method")
                     return text.strip()
             
             # Strategy 3: Look for UTF-16 encoded text (Word uses this)
             try:
                 text = self._extract_utf16_strings(content)
                 if text and len(text.strip()) > 50:
-                    logger.info(f"Found {len(text)} chars using UTF-16 method")
+                    logger.debug(f"Binary: found {len(text)} chars using UTF-16 method")
                     return text.strip()
             except:
                 pass
             
-            logger.warning(f"Binary extraction found <50 chars - file might be empty or very corrupted")
+            logger.debug(f"Binary: no substantial text found")
             return ""
         
         except Exception as e:
@@ -566,21 +546,17 @@ class DOCXParser:
         Returns:
             Extracted text
         """
-        text_parts = []
-        
-        # Look for UTF-16 patterns
+        # Try UTF-16 LE (little-endian, common in Windows)
         try:
-            # Try UTF-16 LE (little-endian, common in Windows)
             decoded = content.decode('utf-16-le', errors='ignore')
-            # Extract words (remove non-printable)
             words = re.findall(r'[\w\s]{2,}', decoded)
             if words:
                 return ' '.join(words).strip()
         except:
             pass
         
+        # Try UTF-16 BE (big-endian)
         try:
-            # Try UTF-16 BE (big-endian)
             decoded = content.decode('utf-16-be', errors='ignore')
             words = re.findall(r'[\w\s]{2,}', decoded)
             if words:
