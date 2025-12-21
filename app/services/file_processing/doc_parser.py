@@ -1,16 +1,21 @@
 """Specialized parser for old MS Word .doc binary format.
 
-Uses antiword utility for reliable text extraction from .doc files.
-antword is a proven tool that works with old MS Word 97-2003 format.
+Uses LibreOffice (soffice) to convert .doc to .docx on the fly.
+LibreOffice works perfectly with old Russian .doc files (CP1251).
 
-Installation:
-- Windows: choco install antiword
-- Linux: sudo apt-get install antiword
-- macOS: brew install antiword
+Requirements:
+- LibreOffice installed and in PATH
+- soffice command available
+
+Windows:
+- Install LibreOffice: https://www.libreoffice.org/
+- Add "C:\\Program Files\\LibreOffice\\program" to PATH
 """
 
 import logging
 import subprocess
+import shutil
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -18,41 +23,39 @@ logger = logging.getLogger(__name__)
 
 
 class DOCParser:
-    """Specialized parser for old binary .doc format using antiword.
+    """Specialized parser for old binary .doc format using LibreOffice.
     
-    Old MS Word .doc files (97-2003) use OLE compound file format.
-    We use antiword utility which is proven and reliable.
-    
-    Handles:
-    - Old .doc format (Word 97-2003)
-    - Binary OLE files
-    - Automatic fallback if antiword not installed
+    Old MS Word .doc files are binary and hard to parse.
+    LibreOffice converts them to .docx perfectly.
     """
     
     def __init__(self) -> None:
-        self._antiword_available = self._check_antiword()
+        self._soffice_path = self._find_libreoffice()
+        if self._soffice_path:
+            logger.info(f"✓ LibreOffice found at: {self._soffice_path}")
+        else:
+            logger.warning("⚠ LibreOffice (soffice) not found!")
     
     @staticmethod
-    def _check_antiword() -> bool:
-        """Check if antiword is installed."""
-        try:
-            subprocess.run(
-                ["antiword", "-v"],
-                capture_output=True,
-                timeout=5
-            )
-            logger.info("✓ antiword is installed and available")
-            return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            logger.warning("⚠ antiword is NOT installed")
-            logger.warning("Install it:")
-            logger.warning("  Windows: choco install antiword")
-            logger.warning("  Linux: sudo apt-get install antiword")
-            logger.warning("  macOS: brew install antiword")
-            return False
+    def _find_libreoffice() -> Optional[str]:
+        """Find path to LibreOffice executable."""
+        # Check in PATH
+        if shutil.which("soffice"):
+            return "soffice"
+        
+        # Check common Windows paths
+        paths = [
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        ]
+        for path in paths:
+            if Path(path).exists():
+                return path
+        
+        return None
     
     def extract_text(self, file_path: Path) -> str:
-        """Extract text from old binary .doc file using antiword.
+        """Extract text from .doc file by converting to .docx with LibreOffice.
         
         Args:
             file_path: Path to .doc file
@@ -62,46 +65,84 @@ class DOCParser:
             
         Raises:
             FileNotFoundError: If file doesn't exist
-            ValueError: If antiword not installed or extraction fails
+            ValueError: If LibreOffice failed
         """
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
         
-        if not self._antiword_available:
+        if not self._soffice_path:
             raise ValueError(
-                "antiword is not installed. Install it: "
-                "Windows (choco install antiword), "
-                "Linux (apt-get install antiword), "
-                "macOS (brew install antiword)"
+                "LibreOffice not found! Please install LibreOffice and add to PATH. "
+                "Download: https://www.libreoffice.org/"
             )
         
-        logger.info(f"Extracting text from {file_path.name} ({file_path.stat().st_size} bytes)")
+        logger.info(f"Converting {file_path.name} to .docx using LibreOffice...")
+        
+        # Create temp output dir in the same folder
+        output_dir = file_path.parent
         
         try:
+            # Convert .doc to .docx
+            # soffice --headless --convert-to docx "file.doc" --outdir "output_dir"
+            cmd = [
+                self._soffice_path,
+                "--headless",
+                "--convert-to",
+                "docx",
+                str(file_path),
+                "--outdir",
+                str(output_dir)
+            ]
+            
             result = subprocess.run(
-                ["antiword", str(file_path)],
+                cmd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=60
             )
             
-            if result.returncode == 0 and result.stdout:
-                text = result.stdout.strip()
-                if text:
-                    logger.info(f"✓ antiword extraction successful: {len(text)} chars")
-                    return text
-                else:
-                    logger.warning(f"antiword returned empty text")
-                    raise ValueError(f"No text extracted from {file_path.name}")
+            if result.returncode != 0:
+                logger.error(f"LibreOffice conversion failed: {result.stderr}")
+                raise ValueError(f"LibreOffice conversion failed: {result.stderr}")
+            
+            # Find the converted file (same name but .docx)
+            docx_path = output_dir / (file_path.stem + ".docx")
+            
+            if not docx_path.exists():
+                raise ValueError(f"Converted .docx not found at {docx_path}")
+            
+            logger.info(f"✓ Conversion successful: {docx_path.name}")
+            
+            # Now extract text from the new .docx using python-docx
+            # We import here to avoid circular dependency
+            from docx import Document
+            
+            doc = Document(docx_path)
+            extracted_text = []
+            
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    extracted_text.append(para.text)
+            
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if row_text:
+                        extracted_text.append(" | ".join(row_text))
+            
+            text = "\n".join(extracted_text)
+            
+            # Clean up the temporary .docx file
+            try:
+                docx_path.unlink()
+            except Exception:
+                pass
+            
+            if text.strip():
+                return text
             else:
-                logger.error(f"antiword failed with return code {result.returncode}")
-                if result.stderr:
-                    logger.error(f"antiword error: {result.stderr[:200]}")
-                raise ValueError(f"Cannot extract text from {file_path.name}")
-        
-        except subprocess.TimeoutExpired:
-            logger.error(f"antiword conversion timed out for {file_path.name}")
-            raise ValueError(f"Extraction timeout for {file_path.name}")
+                raise ValueError("Extracted text is empty")
+
         except Exception as e:
-            logger.error(f"Extraction error: {type(e).__name__}: {str(e)[:100]}")
-            raise ValueError(f"Cannot extract text from {file_path.name}") from e
+            logger.error(f"Error processing .doc file: {e}")
+            raise ValueError(f"Failed to process .doc file: {e}")
