@@ -24,7 +24,7 @@ from rag_module.services.manager import RAGManager
 from rag_module.file_processing import FileConverter
 from rag_module.services.chunker import Chunker
 from rag_module.services.embeddings import EmbeddingService
-from rag_module.config import get_settings
+from rag_module.config import get_config
 
 # Setup logging
 logging.basicConfig(
@@ -60,12 +60,12 @@ def test_config():
     logger.info("="*60)
     
     try:
-        settings = get_settings()
+        config = get_config()
         logger.info(f"✅ Config loaded:")
-        logger.info(f"   - Embedding model: {settings.EMBEDDING_MODEL}")
-        logger.info(f"   - Chunk size: {settings.CHUNK_SIZE}")
-        logger.info(f"   - Vector DB: {settings.VECTOR_DB_PATH}")
-        logger.info(f"   - Collection: {settings.VECTOR_DB_COLLECTION}")
+        logger.info(f"   - Embedding model: {config.embedding_model}")
+        logger.info(f"   - Chunk size: {config.chunk_size}")
+        logger.info(f"   - Vector DB: {config.vector_db_path}")
+        logger.info(f"   - Top K: {config.top_k}")
         return True
     except Exception as e:
         logger.error(f"❌ Config failed: {e}")
@@ -178,6 +178,8 @@ def test_rag_manager_init():
         return True
     except Exception as e:
         logger.error(f"❌ RAG Manager init failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
