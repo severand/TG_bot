@@ -1,19 +1,27 @@
 """DOCX file parser with robust error handling for old .doc files.
 
-Fixes 2025-12-21 00:45 - TEXT CLEANING:
+Фиксы 2025-12-21 10:45 - ПОДДЕРЖКА СТАРЫХ .DOC ФАЙЛОВ:
+- Добавлен метод _extract_from_ole_doc() для чтения OLE структуры
+- Использует библиотеку olefile для MS Word 97-2003 формата
+- Извлечение текста из потоков WordDocument и 1Table
+- Автоматическое определение кодировки (cp1251 для русского)
+- Лучшая очистка текста с удалением служебных символов
+- Улучшена цепочка fallback методов
+
+Фиксы 2025-12-21 00:45 - TEXT CLEANING:
 - Integrate TextCleaner for extracted binary content
 - Remove garbage characters from binary .doc extraction
 - Normalize whitespace and preserve paragraphs
 - Validate text quality before returning
 - Show preview of extracted text
 
-Fixes 2025-12-21 00:35 - CRITICAL FIX:
+Фиксы 2025-12-21 00:35 - CRITICAL FIX:
 - Improved binary .doc extraction with better text detection
 - Better word boundary detection in old Word binary format
 - Extract more text from corrupted binary files
 - Better handling of MS Office OLE format
 
-Fixes 2025-12-20 23:55 - IMPROVED SOLUTION:
+Фиксы 2025-12-20 23:55 - IMPROVED SOLUTION:
 - Try python-docx first (works for valid DOCX)
 - If fails = old .doc binary format, fallback to ZIP extraction
 - Extract text from document.xml even if corrupted
@@ -49,6 +57,11 @@ except ImportError:
     Paragraph = None
     _Cell = None
 
+try:
+    import olefile
+except ImportError:
+    olefile = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +70,7 @@ class DOCXParser:
     
     Supports both valid DOCX files and old .doc files.
     Uses python-docx for valid files, ZIP extraction fallback for corrupted.
-    Also handles pure binary old .doc files (not ZIP-based).
+    Also handles pure binary old .doc files (not ZIP-based) using olefile.
     Handles incomplete ZIP structures and corrupted XML gracefully.
     
     Cleans extracted text from binary sources to remove garbage.
@@ -71,7 +84,7 @@ class DOCXParser:
         """Extract text from DOCX file.
         
         Extracts text from paragraphs and tables, preserving document structure.
-        Tries python-docx first, falls back to ZIP extraction, then binary.
+        Tries python-docx first, falls back to ZIP extraction, then OLE, then binary.
         Cleans extracted text from binary sources.
         
         Args:
@@ -142,13 +155,40 @@ class DOCXParser:
                 logger.info(f"✓ ZIP fallback extracted {len(result)} chars")
                 return result
             else:
-                logger.warning(f"ZIP fallback extracted 0 chars, trying binary...")
+                logger.warning(f"ZIP fallback extracted 0 chars, trying OLE method...")
         
         except Exception as e:
             logger.warning(f"ZIP fallback failed: {type(e).__name__}: {str(e)[:100]}")
-            logger.info(f"File is likely pure binary .doc, trying binary extraction...")
+            logger.info(f"Trying OLE method for old .doc files...")
         
-        # Fallback 2: Extract from binary old .doc format
+        # Fallback 2: Extract using OLE (for old MS Word 97-2003 binary .doc)
+        try:
+            logger.info(f"Using OLE method for {file_path.name}")
+            result = self._extract_from_ole_doc(file_path)
+            if result.strip():
+                logger.info(f"✓ OLE method extracted {len(result)} chars (before cleaning)")
+                
+                # Clean the binary extraction result
+                logger.info(f"Cleaning extracted text from OLE...")
+                cleaned_result = self.text_cleaner.clean_extracted_text(result, aggressive=True)
+                
+                if cleaned_result and self.text_cleaner.is_text_usable(cleaned_result):
+                    logger.info(f"✓ Cleaned text: {len(cleaned_result)} chars (quality OK)")
+                    # Show preview
+                    preview = self.text_cleaner.get_preview(cleaned_result, max_lines=3)
+                    logger.debug(f"Text preview:\n{preview}")
+                    return cleaned_result
+                else:
+                    logger.warning(f"Cleaned text quality is poor, returning raw text")
+                    return result
+            else:
+                logger.warning(f"OLE method extracted 0 chars, trying binary method...")
+        
+        except Exception as e:
+            logger.warning(f"OLE method failed: {type(e).__name__}: {str(e)[:100]}")
+            logger.info(f"Trying primitive binary extraction...")
+        
+        # Fallback 3: Extract from binary old .doc format (last resort)
         try:
             logger.info(f"Using binary fallback for {file_path.name}")
             result = self._extract_from_binary_doc(file_path)
@@ -177,6 +217,118 @@ class DOCXParser:
         except Exception as e:
             logger.error(f"Binary fallback also failed: {type(e).__name__}: {e}")
             raise ValueError(f"Invalid DOCX/DOC file: Cannot extract text using any method") from e
+    
+    def _extract_from_ole_doc(self, file_path: Path) -> str:
+        """Extract text from old .doc file using OLE structure.
+        
+        Uses olefile library to read MS Word 97-2003 OLE format.
+        Looks for text in WordDocument and 1Table streams.
+        
+        Args:
+            file_path: Path to .doc file
+            
+        Returns:
+            str: Extracted text
+        """
+        if olefile is None:
+            logger.error("olefile library not installed. Install with: pip install olefile>=0.46")
+            return ""
+        
+        try:
+            if not olefile.isOleFile(str(file_path)):
+                logger.warning(f"File {file_path.name} is not an OLE document")
+                return ""
+            
+            ole = olefile.OleFileIO(str(file_path))
+            logger.info(f"Successfully opened OLE file {file_path.name}")
+            
+            text_parts = []
+            
+            # Try to extract from WordDocument stream
+            if ole.exists('WordDocument'):
+                logger.info(f"Found WordDocument stream in {file_path.name}")
+                try:
+                    stream = ole.openstream('WordDocument')
+                    data = stream.read()
+                    text = self._extract_text_from_word_stream(data)
+                    if text.strip():
+                        text_parts.append(text)
+                        logger.info(f"Extracted {len(text)} chars from WordDocument")
+                except Exception as e:
+                    logger.warning(f"Failed to extract from WordDocument: {type(e).__name__}: {e}")
+            
+            # Try to extract from 1Table stream (contains formatting and text)
+            if ole.exists('1Table'):
+                logger.info(f"Found 1Table stream in {file_path.name}")
+                try:
+                    stream = ole.openstream('1Table')
+                    data = stream.read()
+                    
+                    # Try multiple encodings
+                    for encoding in ['cp1251', 'utf-8', 'latin-1']:
+                        try:
+                            decoded = data.decode(encoding, errors='ignore')
+                            # Clean non-printable characters
+                            text = re.sub(r'[^\w\s\.\,\:\;\!\?\-\(\)\[\]\"\'\'№\%\n]', ' ', decoded)
+                            text = re.sub(r'\s+', ' ', text).strip()
+                            
+                            if len(text) > 50:
+                                text_parts.append(text)
+                                logger.info(f"Extracted {len(text)} chars from 1Table (encoding: {encoding})")
+                                break
+                        except Exception:
+                            continue
+                
+                except Exception as e:
+                    logger.warning(f"Failed to extract from 1Table: {type(e).__name__}: {e}")
+            
+            ole.close()
+            logger.info("OLE file closed")
+            
+            result = '\n\n'.join(text_parts)
+            if result.strip():
+                logger.info(f"✓ OLE method extracted {len(result)} chars total")
+                return result
+            else:
+                logger.warning(f"OLE method could not find any text")
+                return ""
+        
+        except Exception as e:
+            logger.error(f"OLE extraction error: {type(e).__name__}: {e}")
+            return ""
+    
+    def _extract_text_from_word_stream(self, data: bytes) -> str:
+        """Extract text from WordDocument stream.
+        
+        Word stores text in special format with FIB structure.
+        This method searches for readable ASCII/UTF strings.
+        
+        Args:
+            data: Binary data from stream
+            
+        Returns:
+            str: Extracted text
+        """
+        text_parts = []
+        
+        # Try multiple encodings
+        for encoding in ['cp1251', 'utf-8', 'latin-1']:
+            try:
+                decoded = data.decode(encoding, errors='ignore')
+                # Find readable words (minimum 3 characters)
+                words = re.findall(r'[а-яА-ЯёЁa-zA-Z]{3,}', decoded)
+                
+                if len(words) > 10:  # Found enough words
+                    # Join into text
+                    text = ' '.join(words)
+                    if len(text) > 100:  # Minimum 100 characters
+                        text_parts.append(text)
+                        logger.debug(f"Found {len(words)} words using {encoding}")
+                        break
+            except Exception:
+                continue
+        
+        return ' '.join(text_parts)
     
     def _extract_from_zip(self, file_path: Path) -> str:
         """Extract text directly from DOCX ZIP archive.
