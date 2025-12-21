@@ -26,7 +26,7 @@ class RAGConfig:
         vector_db_path: Path to vector database directory
         temp_dir: Path for temporary files
         embedding_model: Sentence-Transformers model name
-        embedding_device: Device for embeddings (auto, cpu, cuda, mps)
+        embedding_device: Device for embeddings (cpu, cuda, mps)
         chunk_size: Maximum chunk size in tokens/words
         chunk_overlap: Overlap between chunks
         top_k: Default number of results to return
@@ -51,7 +51,7 @@ class RAGConfig:
         'EMBEDDING_MODEL',
         'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
     )
-    embedding_device: str = getenv('EMBEDDING_DEVICE', 'auto')
+    embedding_device: str = getenv('EMBEDDING_DEVICE', 'cpu')
     embedding_batch_size: int = int(getenv('EMBEDDING_BATCH_SIZE', '32'))
     embedding_dimension: int = 384  # Fixed for paraphrase-MiniLM
     
@@ -95,9 +95,9 @@ class RAGConfig:
                 f"llm_temperature must be in [0, 2], got {self.llm_temperature}"
             )
         
-        if self.embedding_device not in ['auto', 'cpu', 'cuda', 'mps']:
+        if self.embedding_device not in ['cpu', 'cuda', 'mps']:
             raise ValueError(
-                f"embedding_device must be one of [auto, cpu, cuda, mps], "
+                f"embedding_device must be one of [cpu, cuda, mps], "
                 f"got {self.embedding_device}"
             )
         
