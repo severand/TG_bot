@@ -20,12 +20,12 @@ xlrd>=2.0.0  # for old .xls format
 pytesseract>=0.3.10
 Pillow>=10.0.0
 
-# OLD DOC format support (MS Word 97-2003 OLE)
-# Дата исправления: 2025-12-21 13:10
-# КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Правильное имя пакета - docx2txt (без python-)
-# Этот пакет правильно извлекает текст из старых .doc файлов
-olefile>=0.46  # для чтения структуры OLE
-docx2txt>=0.8  # ПРАВИЛЬНЫЙ пакет для извлечения текста из .doc (Word 97-2003)
+# DOCUMENT EXTRACTION - FINAL SOLUTION
+# Дата исправления: 2025-12-21 13:13
+# ОКОНЧАТЕЛЬНОЕ РЕШЕНИЕ: НИКАКИХ ХАКОВ OLE!
+# textract - универсальный парсер для всех документов
+# Поддерживает: .doc, .docx, .pdf, .xls, .xlsx, .ppt, .txt, .rtf и т.д.
+textract>=1.6.3  # ОКОНЧАТЕЛЬНОЕ РЕШЕНИЕ для .doc
 
 # Optional: Development dependencies
 # pytest>=7.4.0
