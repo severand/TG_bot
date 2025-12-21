@@ -21,7 +21,7 @@ except ImportError:
     chromadb = None
     ChromaSettings = None
 
-from rag_module.config import get_settings
+from rag_module.config import get_config
 from rag_module.models import Chunk, SearchResult
 from rag_module.exceptions import RAGException
 
@@ -64,9 +64,9 @@ class ChromaVectorStore:
                 "chromadb not installed. Run: pip install chromadb"
             )
 
-        settings = get_settings()
+        config = get_config()
         self.collection_name = collection_name or self.DEFAULT_COLLECTION_NAME
-        self.persist_directory = persist_directory or Path(settings.VECTOR_DB_PATH)
+        self.persist_directory = persist_directory or config.vector_db_chroma_path
 
         # Создаём директорию если нужно
         self.persist_directory.mkdir(parents=True, exist_ok=True)

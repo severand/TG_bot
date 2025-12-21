@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import List, Dict, Any, Optional
 
-from rag_module.config import get_settings
+from rag_module.config import get_config
 from rag_module.models import SearchResult
 from rag_module.services.embeddings import EmbeddingService
 from rag_module.services.vector_store import ChromaVectorStore
@@ -56,8 +56,8 @@ class Retriever:
         Raises:
             RetrieverError: Если не удалось инициализировать
         """
-        settings = get_settings()
-        self.similarity_threshold = similarity_threshold or settings.SIMILARITY_THRESHOLD
+        config = get_config()
+        self.similarity_threshold = similarity_threshold or config.similarity_threshold
 
         try:
             self.embedding_service = embedding_service or EmbeddingService()
@@ -101,12 +101,12 @@ class Retriever:
         try:
             # 1. Генерируем embedding запроса
             logger.debug(f"Embedding query: {query[:50]}...")
-            query_embedding = self.embedding_service.embed_text(query)
+            query_embedding = self.embedding_service.embed(query)
 
             # 2. Поиск в vector store
             logger.debug(f"Searching vector store (top_k={top_k})")
             results = self.vector_store.search(
-                query_embedding=query_embedding,
+                query_embedding=query_embedding.tolist(),
                 top_k=top_k,
                 filter_metadata=filter_metadata,
             )
