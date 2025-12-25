@@ -3,6 +3,13 @@
 Provides streaming support for various AI models available on Replicate.
 Includes fallback to OpenAI if Replicate fails.
 
+UNIFIED LOGGING 2025-12-25 14:44:
+- Логируем ВСЕГДА: [LLM TEXT] - документ/текст
+- Логируем ВСЕГДА: [LLM SYSTEM PROMPT] - системный промпт
+- Логируем ВСЕГДА: [LLM USER PROMPT] - пользовательский промпт
+- ОДИН РАЗ - в analyze_document_stream (используется везде)
+- БЕЗ ДУБЛЕЙ в handlers (documents, homework, rag, etc.)
+
 Fixes 2025-12-21 14:23:
 - Увеличен timeout для больших документов (30s -> 180s)
 - httpx настройка таймаута через environment
@@ -31,6 +38,11 @@ class ReplicateClient:
     
     Supports streaming responses from various models on Replicate.
     Provides fallback and error handling.
+    
+    UNIFIED LOGGING:
+    - All prompts and documents logged here
+    - No duplicate logging in handlers
+    - Works for all modes: homework, analyze, documents, rag, chat
     
     Attributes:
         api_token: Replicate API token
@@ -166,13 +178,22 @@ class ReplicateClient:
         document_text: str,
         user_prompt: str,
         system_prompt: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> AsyncIterator[str]:
         """Analyze document with streaming response.
+        
+        UNIFIED LOGGING HERE:
+        - Logs document text once
+        - Logs system prompt once
+        - Logs user prompt once
+        - No duplicate logging in handlers
+        - Works for all modes
         
         Args:
             document_text: Document content to analyze
             user_prompt: User's analysis request
             system_prompt: Optional system prompt
+            user_id: Optional user ID for logging context
             
         Yields:
             str: Stream tokens
@@ -186,6 +207,20 @@ class ReplicateClient:
         if system_prompt is None:
             system_prompt = self._get_default_system_prompt()
         
+        # UNIFIED LOGGING - ONE PLACE FOR ALL MODES
+        # Log document text
+        user_id_str = f" (User {user_id})" if user_id else ""
+        doc_preview = document_text[:500] + "..." if len(document_text) > 500 else document_text
+        logger.info(f"[LLM TEXT]{user_id_str}: {len(document_text)} chars")
+        logger.info(f"[LLM TEXT RAW]{user_id_str}:\n{doc_preview}")
+        
+        # Log system prompt
+        logger.info(f"[LLM SYSTEM PROMPT]{user_id_str}:\n{system_prompt}")
+        
+        # Log user prompt
+        user_prompt_preview = user_prompt[:300] + "..." if len(user_prompt) > 300 else user_prompt
+        logger.info(f"[LLM USER PROMPT]{user_id_str} ({len(user_prompt)} chars):\n{user_prompt_preview}")
+        
         # Build complete prompt
         full_prompt = self._build_prompt(
             document_text,
@@ -196,7 +231,7 @@ class ReplicateClient:
         try:
             logger.info(
                 f"Calling Replicate {self.model} for streaming analysis "
-                f"(doc: {len(document_text)} chars, prompt: {len(full_prompt)} chars)"
+                f"(doc: {len(document_text)} chars, full_prompt: {len(full_prompt)} chars)"
             )
             
             # Build input with proper format
@@ -223,6 +258,7 @@ class ReplicateClient:
         document_text: str,
         user_prompt: str,
         system_prompt: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> str:
         """Analyze document and return complete response.
         
@@ -230,6 +266,7 @@ class ReplicateClient:
             document_text: Document content
             user_prompt: Analysis request
             system_prompt: Optional system prompt
+            user_id: Optional user ID for logging
             
         Returns:
             str: Complete analysis response
@@ -240,6 +277,7 @@ class ReplicateClient:
             document_text,
             user_prompt,
             system_prompt,
+            user_id=user_id,
         ):
             result_parts.append(token)
         
