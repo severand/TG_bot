@@ -1,4 +1,4 @@
-"""RAG Manager - main orchestrator for RAG pipeline.
+"""RAG Manager - main orchestrator for RAG pipeline with async support.
 
 Главный оркестратор всего RAG модуля. Объединяет все сервисы:
 - FileConverter (парсинг документов)
@@ -8,21 +8,16 @@
 - Retriever (семантический поиск)
 
 Основной интерфейс для работы с RAG системой:
-- add_document() - загрузить документ
-- search() - поиск по базе знаний
+- add_document() / add_document_async() - загружить документ
+- search() / search_async() - поиск по базе знаний
 - list_documents() - список документов
 - delete_document() - удалить документ
 - clear_all() - очистить базу
-
-Пример использования:
-    >>> from rag_module.services.manager import RAGManager
-    >>> manager = RAGManager()
-    >>> doc = await manager.add_document(Path("contract.pdf"), "doc_001")
-    >>> results = await manager.search("условия оплаты")
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -58,6 +53,8 @@ class RAGManager:
     - Embeddings (EmbeddingService)
     - Vector storage (ChromaVectorStore)
     - Semantic search (Retriever)
+
+    Предоставляет синхронные и асинхронные методы.
 
     Attributes:
         file_converter: Конвертер файлов
@@ -106,6 +103,9 @@ class RAGManager:
                 vector_store=self.vector_store,
             )
 
+            # Сохраняем config для использования в асинхронных методах
+            self.config = config
+
             # Создаём директорию для реестра если нужно
             self.documents_registry_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -118,7 +118,7 @@ class RAGManager:
             logger.error(f"Failed to initialize RAG Manager: {e}")
             raise RAGManagerError(f"Cannot initialize RAG Manager: {e}") from e
 
-    # ---------- Публичный API ----------
+    # ---------- Публичные API методы ----------
 
     def add_document(
         self,
@@ -126,7 +126,7 @@ class RAGManager:
         doc_id: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Document:
-        """Добавить документ в базу знаний.
+        """Добавить документ в базу знаний (синхронно).
 
         Полный pipeline:
         1. Парсинг файла -> текст
@@ -217,6 +217,41 @@ class RAGManager:
                 pass
             raise RAGManagerError(f"Failed to add document: {e}") from e
 
+    async def add_document_async(
+        self,
+        file_path: Path,
+        doc_id: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Document:
+        """Добавить документ в базу знаний (асинхронно, неблокирующе).
+
+        Запускает синхронное add_document в thread pool.
+        Отлично для работы с Telegram ботом на больших документах.
+
+        Args:
+            file_path: Путь к файлу
+            doc_id: Уникальный идентификатор документа
+            metadata: Дополнительные метаданные
+
+        Returns:
+            Document объект с полной информацией
+
+        Raises:
+            RAGManagerError: Если не удалось обработать документ
+        """
+        try:
+            # Запускаем в thread pool, не блокируем event loop
+            document = await asyncio.to_thread(
+                self.add_document,
+                file_path,
+                doc_id,
+                metadata,
+            )
+            return document
+        except Exception as e:
+            logger.error(f"Error adding document async: {e}")
+            raise RAGManagerError(f"Failed to add document async: {e}") from e
+
     def search(
         self,
         query: str,
@@ -224,7 +259,7 @@ class RAGManager:
         filter_metadata: Optional[Dict[str, Any]] = None,
         min_similarity: Optional[float] = None,
     ) -> List[SearchResult]:
-        """Поиск по базе знаний.
+        """Поиск по базе знаний (синхронно).
 
         Args:
             query: Текстовый запрос
@@ -256,6 +291,43 @@ class RAGManager:
         except Exception as e:
             logger.error(f"Search error: {e}")
             raise RAGManagerError(f"Search failed: {e}") from e
+
+    async def search_async(
+        self,
+        query: str,
+        top_k: int = 5,
+        filter_metadata: Optional[Dict[str, Any]] = None,
+        min_similarity: Optional[float] = None,
+    ) -> List[SearchResult]:
+        """Поиск по базе знаний (асинхронно, неблокирующе).
+
+        Запускает синхронный search в thread pool.
+
+        Args:
+            query: Текстовый запрос
+            top_k: Максимальное количество результатов
+            filter_metadata: Фильтр по метаданным
+            min_similarity: Минимальная схожесть (0-1)
+
+        Returns:
+            Список SearchResult отсортированный по relevance
+
+        Raises:
+            RAGManagerError: Если поиск не удался
+        """
+        try:
+            # Запускаем в thread pool, не блокируем event loop
+            results = await asyncio.to_thread(
+                self.search,
+                query,
+                top_k,
+                filter_metadata,
+                min_similarity,
+            )
+            return results
+        except Exception as e:
+            logger.error(f"Search error async: {e}")
+            raise RAGManagerError(f"Search failed async: {e}") from e
 
     def list_documents(self) -> List[Document]:
         """Получить список всех документов.
@@ -360,7 +432,7 @@ class RAGManager:
     # ---------- Внутренние методы ----------
 
     def _load_or_create_registry(self) -> None:
-        """Загрузить существующий реестр или создать новый."""
+        """Загружить существующий реестр или создать новый."""
         if self.documents_registry_path.exists():
             try:
                 with open(self.documents_registry_path, "r", encoding="utf-8") as f:
