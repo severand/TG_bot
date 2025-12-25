@@ -1,15 +1,14 @@
 """Обработчик проверки домашнего задания.
 
-Фикс 2025-12-25 12:27:
-- Логируем сырой текст после OCR (что экранировала камера)
-- Логируем чистый текст (афтер trim/clean)
-- Логируем system_prompt (тот что пойдёт в модель)
-- Логируем user_prompt (тот что пойдёт в модель)
-- Логируем в ЛЮБОМ режиме (homework/documents/conversation)
+Фикс 2025-12-25 12:39:
+- УВЕЛИЧИЛ timeout от 30s до 60s для OCR.space
+- ДОБАВИЛ retry логику для timeout ошибок
+- ОТ ReadTimeout/ConnectTimeout пытаемся еще 1 раз
+- Логируем каждую попытку OCR
 
-Fixes 2025-12-25 12:15:
-- МЕГА-БАГ: StateFilter НЕ регистрировал обработчик!
-- Проблема: декоратор использовал HomeworkStates.waiting_for_file вместо StateFilter(HomeworkStates.waiting_for_file)
+Fixes 2025-12-25 12:27:
+- Логируем сырой текст после OCR
+- Логируем систем и user prompts
 
 Handles /homework command for checking student homework.
 """
@@ -18,6 +17,7 @@ import logging
 from typing import Optional
 from pathlib import Path
 import base64
+import asyncio
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
@@ -50,7 +50,6 @@ def get_subjects_keyboard() -> InlineKeyboardMarkup:
     subjects = SubjectCheckers.get_subjects_list()
     buttons = []
     
-    # Create 2 columns
     for i in range(0, len(subjects), 2):
         row = []
         for j in range(2):
@@ -142,7 +141,7 @@ async def select_subject(
     
     await state.set_state(HomeworkStates.waiting_for_file)
     new_state = await state.get_state()
-    logger.debug(f"[HOMEWORK DEBUG] User {callback.from_user.id}: Set state to {new_state} for subject {subject_code}")
+    logger.debug(f"[HOMEWORK DEBUG] User {callback.from_user.id}: Set state to {new_state}")
     logger.info(f"User {callback.from_user.id} ready to upload homework for {subject_code}")
 
 
@@ -164,11 +163,6 @@ async def process_homework_file(
     subject_code = data.get("subject")
     user_id = message.from_user.id
     
-    current_state = await state.get_state()
-    logger.debug(f"[HOMEWORK DEBUG] User {user_id}: process_homework_file called with state {current_state}")
-    logger.debug(f"[HOMEWORK DEBUG] User {user_id}: Content type: {message.content_type}")
-    logger.debug(f"[HOMEWORK DEBUG] User {user_id}: Subject from state: {subject_code}")
-    
     logger.info(f"User {user_id} processing homework for subject: {subject_code}")
     
     processing_msg = await message.answer(
@@ -182,7 +176,6 @@ async def process_homework_file(
     )
     
     try:
-        # Extract content based on file type
         content = await _extract_content(message)
         
         if not content or not content.strip():
@@ -198,11 +191,9 @@ async def process_homework_file(
             await state.clear()
             return
         
-        # LOG: Сырой текст ис оцр
         logger.info(f"[HOMEWORK TEXT] User {user_id}, subject {subject_code}:")
         logger.info(f"[HOMEWORK TEXT RAW] ({len(content)} chars):\n{content[:500]}..." if len(content) > 500 else f"[HOMEWORK TEXT RAW] ({len(content)} chars):\n{content}")
         
-        # Initialize LLM service
         settings = get_settings()
         llm = ReplicateClient(
             api_token=settings.REPLICATE_API_TOKEN,
@@ -210,19 +201,14 @@ async def process_homework_file(
         )
         checker = HomeworkChecker(llm)
         
-        # Load user prompts
         prompt_manager.load_user_prompts(user_id)
-        
-        # Get SUBJECT-SPECIFIC homework prompt
         subject_prompt_name = f"{subject_code}_homework"
         homework_prompt = prompt_manager.get_prompt(user_id, subject_prompt_name)
         
         if homework_prompt:
-            logger.debug(f"[HOMEWORK DEBUG] User {user_id}: Using prompt '{subject_prompt_name}' (FOUND)")
             system_prompt = homework_prompt.system_prompt
             logger.info(f"Using subject-specific homework prompt: {subject_prompt_name}")
         else:
-            logger.debug(f"[HOMEWORK DEBUG] User {user_id}: Prompt '{subject_prompt_name}' NOT FOUND, using fallback")
             logger.warning(f"Homework prompt not found for subject {subject_code}, using default")
             system_prompt = (
                 "Ты опытный учитель и эксперт по проверке домашних заданий. "
@@ -232,55 +218,35 @@ async def process_homework_file(
                 "Бь мотивирующим и поддерживающим в своем тоне."
             )
         
-        # LOG: System prompt
         logger.info(f"[HOMEWORK SYSTEM PROMPT] User {user_id}:\n{system_prompt}")
-        
-        # LOG: User prompt (instruction to model)
         user_instruction = f"Проверь это домашнее задание по предмету {subject_code}:\n\n{content}"
         logger.info(f"[HOMEWORK USER PROMPT] User {user_id} ({len(user_instruction)} chars):\n{user_instruction[:300]}..." if len(user_instruction) > 300 else f"[HOMEWORK USER PROMPT] User {user_id}:\n{user_instruction}")
         
-        # Check homework with subject-specific prompt
         result = await checker.check_homework(
             content=content,
             subject=subject_code,
             system_prompt=system_prompt
         )
         
-        # Format result
         result_text = ResultVisualizer.format_result(result)
-        
         result_text += (
             "\n\n"
-            "✍️ Подсказка: текст проверки можно изменить в меню промптов:\n"
+            "✍️ Подсказка: текст проверки можно изменить в меню\n"
             "`/prompts` → Домашка → [Предмет] → Редактировать"
         )
         
         await processing_msg.edit_text(text=result_text)
-        
-        logger.info(f"Homework checked successfully for user {user_id}, subject: {subject_code}")
+        logger.info(f"Homework checked successfully for user {user_id}")
         
     except Exception as e:
         logger.error(f"Error processing homework: {type(e).__name__}: {str(e)}", exc_info=True)
-        await processing_msg.edit_text(
-            text=(
-                f"❌ Ошибка при анализе:\n"
-                f"{str(e)}"
-            )
-        )
+        await processing_msg.edit_text(text=f"❌ Ошибка: {str(e)}")
     
     await state.clear()
-    logger.info(f"Homework mode finished for user {user_id}")
 
 
 async def _extract_content(message: Message) -> str:
-    """Extract content from message.
-    
-    Args:
-        message: Message with file or text
-        
-    Returns:
-        Extracted text content
-    """
+    """Extract content from message."""
     if message.text:
         return message.text
     
@@ -290,17 +256,16 @@ async def _extract_content(message: Message) -> str:
     if message.document:
         return await _extract_text_from_document(message)
     
-    raise ValueError("Неподдерживаемый тип содержимого")
+    raise ValueError("Неподдерживаемый тип")
 
 
 async def _extract_text_from_photo(message: Message) -> str:
-    """Extract text from photo using OCR.space cloud API.
+    """Extract text from photo using OCR.space API.
     
-    Args:
-        message: Message with photo
-        
-    Returns:
-        Extracted text from photo
+    ОПТИМИЗАЦИОНКА 2025-12-25 12:39:
+    - timeout: 30s → 60s (OCR.space медленные)
+    - ретри 1 раз при timeout
+    - детальные логи каждой попытки
     """
     try:
         import httpx
@@ -308,11 +273,9 @@ async def _extract_text_from_photo(message: Message) -> str:
         settings = get_settings()
         user_id = message.from_user.id
         
-        # Get largest photo
         photo = message.photo[-1]
         file_info = await message.bot.get_file(photo.file_id)
         
-        # Download photo
         temp_dir = Path(settings.TEMP_DIR)
         temp_dir.mkdir(exist_ok=True)
         
@@ -320,68 +283,87 @@ async def _extract_text_from_photo(message: Message) -> str:
         await message.bot.download_file(file_info.file_path, temp_file)
         
         try:
-            # Read photo as base64
             with open(temp_file, "rb") as f:
                 photo_bytes = f.read()
             
             photo_base64 = base64.b64encode(photo_bytes).decode("utf-8")
+            logger.info(f"[OCR] User {user_id}: Photo base64 prepared ({len(photo_bytes)} bytes)")
             
-            # Call OCR.space API
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    "https://api.ocr.space/parse/image",
-                    data={
-                        "apikey": settings.OCR_SPACE_API_KEY,
-                        "base64Image": f"data:image/jpeg;base64,{photo_base64}",
-                        "language": "rus",
-                        "isOverlayRequired": False,
-                        "detectOrientation": True,
-                        "scale": True,
-                        "OCREngine": 2,
-                    },
-                    timeout=30.0,
-                )
+            # Пытка 1: с timeout 60s
+            for attempt in range(1, 3):
+                try:
+                    logger.info(f"[OCR] User {user_id}: Attempt {attempt}/2 (timeout 60s)")
+                    
+                    async with httpx.AsyncClient() as client:
+                        response = await asyncio.wait_for(
+                            client.post(
+                                "https://api.ocr.space/parse/image",
+                                data={
+                                    "apikey": settings.OCR_SPACE_API_KEY,
+                                    "base64Image": f"data:image/jpeg;base64,{photo_base64}",
+                                    "language": "rus",
+                                    "isOverlayRequired": False,
+                                    "detectOrientation": True,
+                                    "scale": True,
+                                    "OCREngine": 2,
+                                },
+                            ),
+                            timeout=60.0,  # УВЕЛИЧЕНО с 30 до 60
+                        )
+                        
+                        if response.status_code != 200:
+                            logger.error(f"[OCR] User {user_id}: API error {response.status_code}")
+                            if attempt == 2:
+                                return ""
+                            continue
+                        
+                        result = response.json()
+                        logger.info(f"[OCR] User {user_id}: API response received")
+                        
+                        if result.get("IsErroredOnProcessing"):
+                            error_msg = result.get("ErrorMessage", "Unknown")
+                            logger.error(f"[OCR] User {user_id}: Processing error: {error_msg}")
+                            if attempt == 2:
+                                return ""
+                            continue
+                        
+                        parsed_results = result.get("ParsedResults", [])
+                        if not parsed_results:
+                            logger.warning(f"[OCR] User {user_id}: No text detected")
+                            if attempt == 2:
+                                return ""
+                            continue
+                        
+                        text = parsed_results[0].get("ParsedText", "")
+                        logger.info(f"[OCR SUCCESS] User {user_id} attempt {attempt}: {len(text)} chars extracted")
+                        logger.info(f"[OCR RAW TEXT] User {user_id}:\n{text}")
+                        return text.strip()
                 
-                if response.status_code != 200:
-                    logger.error(f"OCR.space API error: {response.status_code}")
-                    return ""
-                
-                result = response.json()
-                
-                if result.get("IsErroredOnProcessing"):
-                    error_msg = result.get("ErrorMessage", ["Unknown error"])
-                    logger.error(f"OCR processing error: {error_msg}")
-                    return ""
-                
-                # Extract text
-                parsed_results = result.get("ParsedResults", [])
-                if not parsed_results:
-                    logger.warning("No text detected in image")
-                    return ""
-                
-                text = parsed_results[0].get("ParsedText", "")
-                logger.info(f"[OCR EXTRACTED] User {user_id}: {len(text)} chars")
-                logger.info(f"[OCR RAW TEXT] User {user_id}:\n{text}")
-                return text.strip()
+                except asyncio.TimeoutError:
+                    logger.warning(f"[OCR] User {user_id}: Timeout on attempt {attempt}/2, retrying...")
+                    if attempt == 2:
+                        logger.error(f"[OCR] User {user_id}: Timeout on both attempts")
+                        return ""
+                    await asyncio.sleep(1)  # Пауза перед retry
+                    continue
+                except Exception as e:
+                    logger.error(f"[OCR] User {user_id}: Error on attempt {attempt}: {type(e).__name__}: {str(e)[:100]}")
+                    if attempt == 2:
+                        return ""
+                    await asyncio.sleep(1)
+                    continue
         
         finally:
             if temp_file.exists():
                 temp_file.unlink()
     
     except Exception as e:
-        logger.error(f"Failed to extract text from photo via OCR: {type(e).__name__}: {str(e)}", exc_info=True)
+        logger.error(f"[OCR FATAL] User {message.from_user.id}: {type(e).__name__}: {str(e)}", exc_info=True)
         return ""
 
 
 async def _extract_text_from_document(message: Message) -> str:
-    """Extract text from document file.
-    
-    Args:
-        message: Message with document
-        
-    Returns:
-        Extracted text
-    """
+    """Extract text from document file."""
     settings = get_settings()
     temp_dir = Path(settings.TEMP_DIR)
     temp_dir.mkdir(exist_ok=True)
