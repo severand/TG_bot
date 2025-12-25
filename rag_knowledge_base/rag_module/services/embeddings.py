@@ -1,4 +1,4 @@
-"""Embedding service for RAG module.
+"""Embedding service for RAG module with async support.
 
 Генерирует векторные представления (embeddings) текстов с помощью
 Sentence-Transformers. Использует модель paraphrase-multilingual-MiniLM-L12-v2
@@ -6,10 +6,12 @@ Sentence-Transformers. Использует модель paraphrase-multilingual
 
 Выходные векторы: 384 dimensions.
 Поддерживает как одиночные тексты, так и батчи для эффективности.
+Синхронные И асинхронные методы для работы с asyncio.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import List, Optional
 
@@ -35,6 +37,7 @@ class EmbeddingService:
 
     Использует предобученную модель для создания векторных представлений текста.
     Поддерживает batch processing для оптимизации производительности.
+    Предоставляет синхронные И асинхронные методы для работы с asyncio.
 
     Attributes:
         model_name: Название модели Sentence-Transformers
@@ -81,10 +84,10 @@ class EmbeddingService:
             logger.error(f"Failed to load embedding model: {e}")
             raise EmbeddingError(f"Cannot load model {self.model_name}: {e}") from e
 
-    # ---------- Публичный API ----------
+    # ---------- Синхронные методы (исходные) ----------
 
     def embed(self, text: str) -> np.ndarray:
-        """Создать embedding для одного текста.
+        """Создать embedding для одного текста (синхронно).
 
         Args:
             text: Исходный текст
@@ -110,7 +113,7 @@ class EmbeddingService:
             raise EmbeddingError(f"Failed to embed text: {e}") from e
 
     def embed_batch(self, texts: List[str]) -> np.ndarray:
-        """Создать embeddings для батча текстов.
+        """Создать embeddings для батча текстов (синхронно).
 
         Более эффективно, чем вызывать embed в цикле.
 
@@ -153,6 +156,62 @@ class EmbeddingService:
                 raise EmbeddingError(f"Failed to embed batch: {e}") from e
 
         return result
+
+    # ---------- Асинхронные методы (новые) ----------
+
+    async def embed_async(self, text: str) -> np.ndarray:
+        """Создать embedding для одного текста (асинхронно, неблокирующе).
+
+        Запускает синхронное кодирование в thread pool, не блокируя event loop.
+        Идеально для работы с Telegram ботом.
+
+        Args:
+            text: Исходный текст
+
+        Returns:
+            Вектор embeddings (numpy array)
+
+        Raises:
+            EmbeddingError: Если не удалось создать embedding
+        """
+        if not text or not text.strip():
+            return np.zeros(self.embedding_dim, dtype=np.float32)
+
+        try:
+            # Запускаем в thread pool, не блокируем event loop
+            embedding = await asyncio.to_thread(self.embed, text)
+            return embedding
+        except Exception as e:
+            logger.error(f"Error encoding text async: {e}")
+            raise EmbeddingError(f"Failed to embed text async: {e}") from e
+
+    async def embed_batch_async(self, texts: List[str]) -> np.ndarray:
+        """Создать embeddings для батча текстов (асинхронно, неблокирующе).
+
+        Запускает синхронное кодирование в thread pool, не блокируя event loop.
+        Идеально для обработки больших документов в Telegram боте.
+
+        Args:
+            texts: Список текстов
+
+        Returns:
+            Матрица embeddings размером (len(texts), embedding_dim)
+
+        Raises:
+            EmbeddingError: Если не удалось создать embeddings
+        """
+        if not texts:
+            return np.array([], dtype=np.float32).reshape(0, self.embedding_dim)
+
+        try:
+            # Запускаем в thread pool, не блокируем event loop
+            embeddings = await asyncio.to_thread(self.embed_batch, texts)
+            return embeddings
+        except Exception as e:
+            logger.error(f"Error encoding batch async: {e}")
+            raise EmbeddingError(f"Failed to embed batch async: {e}") from e
+
+    # ---------- Утилиты ----------
 
     def get_embedding_dimension(self) -> int:
         """Получить размерность выходных embeddings.
