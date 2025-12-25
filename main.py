@@ -1,6 +1,11 @@
 """Main entry point for Telegram bot.
 
 Initializes bot, dispatcher, registers handlers and starts polling.
+
+UPDATED 2025-12-25 14:46:
+- Fixed UTF-8 logging on Windows
+- Set stderr to UTF-8 encoding
+- All Unicode characters now visible in logs
 """
 
 import asyncio
@@ -25,13 +30,24 @@ from app.handlers import (
     rag,  # RAG handler
 )
 
-# Configure logging
+
+# FIX: Configure UTF-8 logging on Windows
+# This prevents UnicodeEncodeError for Cyrillic and special characters
+if sys.platform == 'win32':
+    # Windows: reconfigure stderr to use UTF-8
+    import io
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+# Configure logging with UTF-8 support
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
+        # Console handler with UTF-8 encoding
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('bot.log')
+        # File handler with UTF-8 encoding
+        logging.FileHandler('bot.log', encoding='utf-8')
     ]
 )
 
