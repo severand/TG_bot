@@ -28,7 +28,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     await state.clear()
     
     # Set chat mode as default
-    await state.set_state(ChatStates.chatting)
+   # await state.set_state(ChatStates.chatting)
     
     # Simple welcome text without buttons
     text = (
