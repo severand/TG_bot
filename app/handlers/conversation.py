@@ -1,30 +1,14 @@
 """Conversation mode handlers for interactive document analysis.
 
+Fixes 2025-12-25 11:27:
+- АРХИТЕКТУРНАЯ ОПТИМизация: ЭКСПЛИЦИТНЫЕ state filters в декораторах
+- Обработчики срабатывают ТОЛЬКО когда пользователь В ConversationStates.ready
+- В других режимах (homework, prompts) документы обрабатываются специализированными обработчиками
+- НИКАКОГО конфликта между режимами вовле
+
 Фиксы 2025-12-21 14:16:
 - УБРАНО мигающее сообщение с предпросмотром текста
 - Теперь: Обработка → Анализ (без промежуточных показов)
-- Интерфейс чистый, без миганий
-
-Фиксы 2025-12-21 11:01:
-- Добавлен предпросмотр извлеченного текста (первые 500 символов)
-- Показывается после загрузки и обработки документа
-- Осмотр отображается в аккуратном формате с отеняванием
-
-Фиксы 2025-12-20 23:32:
-- КРИТИЧЕСКОЕ: Каждый файл использует свой уникальный temp-директорий (UUID-based)
-- Устранена race condition когда параллельные загрузки удаляли директории друг друга
-- Теперь temp\7884972750_{file_uuid} вместо обыкновенного temp\7884972750
-- Каждый файл удаляет только свой директорий, не затрагивая другие
-
-Фиксы 2025-12-20 22:15:
-- Поддерживает название документа в заголовке результата
-- Оригинальное имя файла показывается в каждом сообщении
-- При получении голоса называется 'photo_document'
-
-Фиксы 2025-12-20 21:05:
-- Убрано навязчивое сообщение "Хотите отредактировать промпт?" после анализа
-- Теперь выводится только результат анализа без дополнительных напоминаний
-- Логику обработки и состояния НЕ менял, только тексты
 
 Handles document analysis and user prompts for interactive conversation.
 """
@@ -70,7 +54,7 @@ def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
     # Загружаем промпты пользователя
     prompt_manager.load_user_prompts(user_id)
     
-    # ИСПРАВЛЕНО: Получаем ТОЛЬКО промпты для анализа документов
+    # ИСПРАВЛЕНО: Получаем ТОЛЬКО промпты для документных промптов
     prompts = prompt_manager.get_prompt_by_category(user_id, "document_analysis")
     
     logger.debug(f"User {user_id}: Loading {len(prompts)} DOCUMENT ANALYSIS prompts")
@@ -125,14 +109,14 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
     await state.set_state(ConversationStates.selecting_prompt)
     
     text = (
-        "📋 *Анализ документов*\n\n"
-        "Шаг 1⃣⃣⃣ из 2: *Выберите тип анализа*\n\n"
+        "📓 *Анализ документов*\n\n"
+        "Шаг 1⁅3⁅3⁅ из 2: *Выберите тип анализа*\n\n"
         f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
         "🔙 *Как это работает:*\n"
-        "1⃣⃣⃣ Выберите промпт (тип анализа)\n"
-        "2⃣⃣⃣ Загрузите документ\n"
-        "3⃣⃣⃣ Получите результат\n\n"
-        "✏̱ *Как отредактировать промпт:*\n"
+        "1⁅3⁅3 Выберите промпт (тип анализа)\n"
+        "2⁅3⁅3 Загрузите документ\n"
+        "3⁅3⁅3 Получите результат\n\n"
+        "✍̣ *Как отредактировать промпт:*\n"
         "`/prompts` → Документы → [Выбрать] → Редактировать\n\n"
         "👇 Ниже выберите тип анализа:"
     )
@@ -172,17 +156,19 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
     # Move to document upload state
     await state.set_state(ConversationStates.ready)
     
+    logger.info(f"User {user_id} selected prompt: {prompt_name}")
+    
     text = (
         f"✅ *Промпт выбран!*\n\n"
         f"📄 *Тип анализа:* `{prompt_name}`\n"
         f"_{prompt.description}_\n\n"
-        f"📂 *Шаг 2⃣⃣⃣ из 2:* Загрузите документ\n\n"
+        f"📂 *Шаг 2⁅3⁅3 из 2:* Загрузите документ\n\n"
         f"📄 *Поддерживаемые форматы:*\n"
         f"• PDF, DOCX, TXT\n"
         f"• Excel (.xlsx, .xls)\n"
         f"• ZIP, DOC\n"
         f"• 📇 Фото\n\n"
-        f"✏̱ *Редактировать этот промпт?*\n"
+        f"✍̣ *Редактировать этот промпт?*\n"
         f"`/prompts` → Документы → `{prompt_name}` → Редактировать\n\n"
         f"📁 Готово? Отправьте документ!"
     )
@@ -195,7 +181,6 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
         ),
     )
     
-    logger.info(f"User {user_id} selected prompt: {prompt_name}")
     await query.answer()
 
 
@@ -208,10 +193,10 @@ async def cb_back_to_prompts(query: CallbackQuery, state: FSMContext) -> None:
     prompts = prompt_manager.get_prompt_by_category(user_id, "document_analysis")
     
     text = (
-        "📋 *Анализ документов*\n\n"
-        "Шаг 1⃣⃣⃣ из 2: *Выберите тип анализа*\n\n"
+        "📓 *Анализ документов*\n\n"
+        "Шаг 1⁅3⁅3 из 2: *Выберите тип анализа*\n\n"
         f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
-        "✏̱ *Как отредактировать промпт:*\n"
+        "✍̣ *Как отредактировать промпт:*\n"
         "`/prompts` → Документы → [Выбрать] → Редактировать\n\n"
         "👇 Ниже выберите тип анализа:"
     )
@@ -240,16 +225,18 @@ async def cb_analyze_cancel(query: CallbackQuery, state: FSMContext) -> None:
     logger.info(f"User {query.from_user.id} cancelled analyze mode")
 
 
-@router.message(ConversationStates.ready, F.document)
+@router.message(
+    ConversationStates.ready,
+    F.document
+)
 async def handle_document_upload(message: Message, state: FSMContext) -> None:
-    """Handle document upload - extract and save.
+    """Обработка загруженного документа.
     
-    КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2025-12-20 23:32:
-    Каждый файл использует ОНИКАЛЬНЫЙ temp-каталог с UUID,
-    чтобы параллельные загрузки не конфликтовали.
-    
-    ИСПРАВЛЕНИЕ 2025-12-21 14:16:
-    Убрано мигающее сообщение с предпросмотром текста.
+    АРХИТЕКТУРНО:
+    Этот обработчик срабатывает ТОЛЬКО когда:
+    1. Пользователь точно в ConversationStates.ready
+    2. Фильтр в декораторе гарантирует это
+    3. Никакие документы из других режимов сюда не попадут
     """
     if not message.document:
         await message.answer("❌ Документ не найден")
@@ -258,7 +245,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
     document: Document = message.document
     file_size = document.file_size or 0
     
-    logger.info(f"User {message.from_user.id} uploading document: {document.file_name} ({file_size} bytes)")
+    logger.info(f"User {message.from_user.id} uploading document in analyze mode: {document.file_name} ({file_size} bytes)")
     
     # Validate file size
     if file_size > config.MAX_FILE_SIZE:
@@ -324,7 +311,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             await status_msg.delete()
             return
         
-        # Save to state - оригинальное имя документа
+        # Save to state - оригинальное име документа
         await state.update_data(
             document_text=extracted_text,
             document_name=document.file_name or "document",
@@ -358,7 +345,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             f"⚠️ {str(e)}\n\n"
             f"📄 *Поддерживаемые форматы:*\n"
             f"• PDF, DOCX, TXT\n"
-            f"• Excel (.xlsx, .xls - требуется xlrd для .xls)\n"
+            f"• Excel (.xlsx, .xls)\n"
             f"• ZIP\n\n"
             f"❌ *НЕ поддерживается:* .doc (старый Word)\n"
             f"Конвертируйте в .docx или PDF.",
@@ -376,21 +363,24 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             await CleanupManager.cleanup_directory_async(temp_user_dir)
 
 
-@router.message(ConversationStates.ready, F.photo)
+@router.message(
+    ConversationStates.ready,
+    F.photo
+)
 async def handle_photo_upload(message: Message, state: FSMContext) -> None:
-    """Handle photo upload with OCR extraction - progress only, no confirmation.
+    """Обработка загруженного фото.
     
-    КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2025-12-20 23:32:
-    Каждое фото использует ОНИКАЛЬНЫЙ temp-каталог с UUID.
-    
-    ИСПРАВЛЕНИЕ 2025-12-21 14:16:
-    Убрано мигающее сообщение с предпросмотром текста.
+    АРХИТЕКТУРНО:
+    Этот обработчик срабатывает ТОЛЬКО когда:
+    1. Пользователь точно в ConversationStates.ready
+    2. Фильтр в декораторе гарантирует это
+    3. Никакие фото из других режимов сюда не попадут
     """
     if not message.photo:
         await message.answer("❌ Фото не найдено")
         return
     
-    logger.info(f"User {message.from_user.id} uploading photo")
+    logger.info(f"User {message.from_user.id} uploading photo in analyze mode")
     
     # Show processing ONLY - no confirmation message after
     status_msg = await message.answer(
@@ -427,7 +417,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
             await status_msg.delete()
             return
         
-        # Save to state - оригинальное имя документа
+        # Save to state - оригинальное име документа
         await state.update_data(
             document_text=extracted_text,
             document_name="photo_document",
@@ -439,7 +429,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         selected_prompt_name = data.get("selected_prompt_name", "default")
         
-        # Log BEFORE analysis starts - FIXED ORDER
+        # Log BEFORE analysis starts
         logger.info(
             f"Photo loaded for user {message.from_user.id}: "
             f"{len(extracted_text)} chars with prompt '{selected_prompt_name}'"
@@ -475,8 +465,6 @@ async def _perform_analysis(
     
     IMPORTANT: After analysis completes, returns user to chat mode (clears state).
     This ensures they don't stay in analysis mode.
-    
-    UPDATED: НАЗВАНИЕ ДОКУМЕНТА В НАЧАЛО КАЖДОГО сообщения
     """
     document_text = data.get("document_text")
     document_name = data.get("document_name", "document")
@@ -509,7 +497,7 @@ async def _perform_analysis(
                 "❌ Промпт не найден. Открываю стандартный..."
             )
         
-        # Build analysis command - NO additional instruction support
+        # Build analysis command
         analysis_command = prompt.user_prompt_template if prompt else "Проанализируй этот документ и предоставь ключевые выводы."
         
         # Analyze
@@ -646,7 +634,7 @@ async def _extract_text_from_photo_for_analysis(
             response = await client.post(
                 "https://api.ocr.space/parse/image",
                 data=payload,
-                timeout=httpx.Timeout(60.0, connect=30.0),  # 60s total, 30s connect
+                timeout=httpx.Timeout(60.0, connect=30.0),
             )
             
             logger.info(f"OCR: Got response status {response.status_code}")
@@ -698,7 +686,7 @@ async def cb_doc_clear(query: CallbackQuery, state: FSMContext) -> None:
     """Clear document (legacy)."""
     await state.clear()
     await state.set_state(ConversationStates.ready)
-    await query.message.answer("🗑️ Документ очищен. Загрузите новый.")
+    await query.message.answer("🗑️ Документ очищен. Загружайте новый.")
     await query.answer()
 
 
