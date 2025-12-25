@@ -1,11 +1,20 @@
-"""Homework checking handler.
+"""Обработчик проверки домашнего задания.
 
-Fixes 2025-12-25 12:08:
+ФИКС 2025-12-25 12:15:
+- МЕГА-БАГ: StateFilter НЕ регистрировал обработчик!
+- Проблема: декоратор использовал HomeworkStates.waiting_for_file вместо StateFilter(HomeworkStates.waiting_for_file)
+- Это старый синтаксис aiogram v3
+- НУЖНО: StateFilter() для эксплицитной регистрации
+- НУНО сказать aiogram: "регистрируем этот обработчик для HomeworkStates.waiting_for_file!"
+- При использовании строки состояния (HomeworkStates.waiting_for_file) всю проверку aiogram пропускает!
+- Обработчик не регистрируется никак, и documents.py при высокой приоритетности грабит сообщение
+
+Фикс 2025-12-25 12:08:
 - ДОБАВЛЕНЫ детальные логи для отладки state transitions
 - Логируем КАКОЙ state установлен при выборе предмета
 - Логируем КАКОЙ prompt используется при обработке файла
 - Логируем текущий state когда обработчик срабатывает
-- Это поможет выяснить почему documents.py перехватывает фото
+- Это помогло выяснить почему documents.py перехватывает фото
 
 Fixes 2025-12-25 11:27:
 - АРХИТЕКТУРНАЯ ОПТИМизация: Декораторы Сами фильтруют стейт
@@ -37,7 +46,9 @@ import base64
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State
 from aiogram.filters.command import Command
+from aiogram.filters.state import StateFilter
 from aiogram.enums import ContentType
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -116,7 +127,7 @@ async def start_homework(
 
 @router.callback_query(
     F.data.startswith("hw_subject_"),
-    HomeworkStates.selecting_subject
+    StateFilter(HomeworkStates.selecting_subject)
 )
 async def select_subject(
     callback: CallbackQuery,
@@ -163,7 +174,7 @@ async def select_subject(
         reply_markup=None
     )
     
-    # ПЕРЕХОД К ОЖИДАЕМОМУ ФАЙЛА
+    # ПЕРЕХОД К ОЖИДАЕМОМУ ФАЙЛУ
     await state.set_state(HomeworkStates.waiting_for_file)
     
     # DEBUG LOG - показать state ПОСЛЕ установки
@@ -173,7 +184,7 @@ async def select_subject(
 
 
 @router.message(
-    HomeworkStates.waiting_for_file,
+    StateFilter(HomeworkStates.waiting_for_file),
     F.content_type.in_({ContentType.DOCUMENT, ContentType.PHOTO, ContentType.TEXT})
 )
 async def process_homework_file(
@@ -184,9 +195,10 @@ async def process_homework_file(
     
     АРХИТЕКТУРНО ВАЖНО:
     Этот обработчик срабатывает ТОЛЬКО когда:
-    1. Пользователь точно в HomeworkStates.waiting_for_file
-    2. Фильтр в декораторе гарантирует это
-    3. Никакие документы из других режимов сюда не попадут
+    1. StateFilter(HomeworkStates.waiting_for_file) эксплицитно в декораторе
+    2. Пользователь точно в HomeworkStates.waiting_for_file
+    3. Фильтр в декораторе гарантирует это
+    4. Никакие документы из других режимов сюда не попадут
     
     Args:
         message: User message with file
@@ -295,7 +307,7 @@ async def process_homework_file(
             )
         )
     
-    # Reset state - ОЧИЩАЕМ вкорец при выходе
+    # Reset state - ОЧИщАЕМ вкорец при выходе
     await state.clear()
     logger.info(f"Homework mode finished for user {user_id}")
 
