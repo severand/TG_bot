@@ -1,26 +1,16 @@
 """Документ хандлеры для загружения и обработки файлов.
 
+Фикс 2025-12-25 12:09:
+- ДОБАВЛЕНЫ детальные DEBUG логи
+- Логируем current_state когда handle_photo срабатывает
+- Логируем StateFilter результат
+- Точные времена когда documents.py вызывается во время homework
+- Результат: видим почему фильтр не работает
+
 Фикс 2025-12-25 12:05:
-- ЯВНЫЕ state filters: остановки НЕ HomeworkStates/ConversationStates/PromptStates
+- ЯВНЫЕ state filters: документы ТОЛЬКО в DocumentAnalysisStates
 - StateFilter(state, "не в HomeworkStates") - точная проверка
 - documents.py БОЛЬШЕ НИКОГДА не перехватывает homework/conversation
-
-Фикс 2025-12-25 11:27:
-- АРХИТЕКТУРНАЯ ПЕРЕДЕЛКА: Explicit state filters вместо guard'ов
-- НИКАКОГО конфликта между режимами - каждый handler явно указывает свой state
-- documents.py БОЛЬШЕ НЕ обрабатывает документы из других режимов
-- Обработчик срабатывает ТОЛЬКО когда пользователь в его режиме
-- Полная изоляция: chat mode (no state filter) -> document/photo -> analyze/homework обработчики
-
-Фиксы 2025-12-20 23:00:
-- Нормальная обработка timeout/network ошибок
-- Graceful error handling вместо падения бота
-- Поддержка Excel файлов (.xls, .xlsx)
-
-Фиксы 2025-12-20:
-- Added photo/image support via OCR.space API
-- Users can now send photos for document analysis (not just files)
-- Same OCR technology as homework handler
 
 Handles file uploads, processing, and analysis responses.
 Supports multiple LLM providers with fallback.
@@ -77,15 +67,20 @@ async def handle_document(
     """Обработка загружаемых документов в ОБЩЕМ режиме.
     
     АРХИТЕКТУРНО:
-    Этот обработчик срабатывает ТОЛЬКО когда:
-    1. Пользователь НЕ в HomeworkStates/ConversationStates/PromptStates
-    2. StateFilter(~HomeworkStates, ...) гарантирует это
-    3. Документ обрабатывается в ОБЩЕМ чате
+    НЕ должен срабатывать если пользователь в HomeworkStates/ConversationStates/PromptStates
     
     Args:
         message: User message with document
         state: FSM state
     """
+    current_state = await state.get_state()
+    user_id = message.from_user.id
+    
+    # DEBUG: VERY DETAILED LOGGING
+    logger.debug(f"[DOCUMENTS DEBUG] User {user_id}: handle_document called")
+    logger.debug(f"[DOCUMENTS DEBUG] User {user_id}: Current state: {current_state}")
+    logger.debug(f"[DOCUMENTS DEBUG] User {user_id}: Document: {message.document.file_name if message.document else 'NONE'}")
+    
     if not message.document:
         await message.answer("❌ Документ не зарегистрирован.")
         return
@@ -93,7 +88,7 @@ async def handle_document(
     document: Document = message.document
     file_size = document.file_size or 0
     
-    logger.info(f"documents.handle_document: User {message.from_user.id} uploading {document.file_name}")
+    logger.info(f"documents.handle_document: User {user_id} uploading {document.file_name}")
     
     # Проверка размера файла
     if file_size > config.MAX_FILE_SIZE:
@@ -122,7 +117,7 @@ async def handle_document(
         temp_base.mkdir(exist_ok=True)
         temp_user_dir = CleanupManager.create_temp_directory(
             temp_base,
-            message.from_user.id,
+            user_id,
         )
         
         # Скачивание файла
@@ -232,7 +227,7 @@ async def handle_document(
         await state.update_data(
             extracted_text=extracted_text,
             original_filename=document.file_name,
-            user_id=message.from_user.id,
+            user_id=user_id,
         )
         
         # Обновление статуса - анализ
@@ -291,7 +286,7 @@ async def handle_document(
                 continue
         
         logger.info(
-            f"Анализ отправлен {message.from_user.id} "
+            f"Анализ отправлен {user_id} "
             f"({len(chunks)} сообщений) [{config.LLM_PROVIDER}]"
         )
         await state.clear()
@@ -325,19 +320,25 @@ async def handle_photo(
     """Обработка фото в ОБЩЕМ режиме с OCR извлечением.
     
     АРХИТЕКТУРНО:
-    Этот обработчик срабатывает ТОЛЬКО в ОБЩЕМ режиме.
-    В HomeworkStates/ConversationStates/PromptStates - филтр
-    ~StateFilter(навсегда отключает этот обработчик.
+    НЕ должен срабатывать если пользователь в HomeworkStates
     
     Args:
         message: User message with photo
         state: FSM state
     """
+    current_state = await state.get_state()
+    user_id = message.from_user.id
+    
+    # DEBUG: VERY DETAILED LOGGING - ОЧЕНЬ ВАЖНО!
+    logger.debug(f"[DOCUMENTS DEBUG] User {user_id}: handle_photo called")
+    logger.debug(f"[DOCUMENTS DEBUG] User {user_id}: Current state: {current_state}")
+    logger.debug(f"[DOCUMENTS DEBUG] User {user_id}: Photo file_id: {message.photo[-1].file_id if message.photo else 'NONE'}")
+    
     if not message.photo:
         await message.answer("❌ Фото не найдено.")
         return
     
-    logger.info(f"documents.handle_photo: User {message.from_user.id} uploading photo")
+    logger.info(f"documents.handle_photo: User {user_id} uploading photo")
     
     # Установка состояния
     await state.set_state(DocumentAnalysisStates.processing)
@@ -357,7 +358,7 @@ async def handle_photo(
         temp_base.mkdir(exist_ok=True)
         temp_user_dir = CleanupManager.create_temp_directory(
             temp_base,
-            message.from_user.id,
+            user_id,
         )
         
         # Оизвлечение текста с фото
@@ -381,7 +382,7 @@ async def handle_photo(
         await state.update_data(
             extracted_text=extracted_text,
             original_filename="photo_document",
-            user_id=message.from_user.id,
+            user_id=user_id,
         )
         
         # Обновление статуса
@@ -440,7 +441,7 @@ async def handle_photo(
                 continue
         
         logger.info(
-            f"Осанализ фото {message.from_user.id} "
+            f"Осанализ фото {user_id} "
             f"({len(chunks)} сообщений) [{config.LLM_PROVIDER}]"
         )
         await state.clear()
