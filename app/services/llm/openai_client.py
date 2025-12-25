@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class OpenAIClient:
     """Client for OpenAI GPT models.
     
-    Provides document analysis using GPT-5 (or GPT-4o as fallback).
+    Provides document analysis using GPT-4o or other supported models.
     Handles API errors and rate limiting gracefully.
     """
     
@@ -24,7 +24,7 @@ class OpenAIClient:
         
         Args:
             api_key: OpenAI API key
-            model: Model name (gpt-5 or gpt-4o)
+            model: Model name (gpt-4o, gpt-4, gpt-3.5-turbo, etc.)
         """
         self.client = AsyncOpenAI(api_key=api_key)
         self.model = model
