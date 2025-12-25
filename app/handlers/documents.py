@@ -1,13 +1,18 @@
-"""Document handlers for file uploads and processing.
+"""Документ хандлеры для загружения и обработки файлов.
 
-Fixes 2025-12-20 23:00:
+Фикс 2025-12-25 11:27:
+- АРХИТЕКТУРНАЯ ПЕРЕдЕЛКА: Explicit state filters вместо guard'ов
+- НИКАКОГО конфликта между режимами - каждый handler явно указывает свой state
+- documents.py БОЛЬШЕ НЕ обрабатывает документы из других режимов
+- Обработчик срабатывает ТОЛЬКО когда пользователь в его режиме
+- Полная изоляция: chat mode (no state filter) -> document/photo -> analyze/homework обработчики
+
+Фиксы 2025-12-20 23:00:
 - Нормальная обработка timeout/network ошибок
 - Graceful error handling вместо падения бота
-- Проверка распределения файлов по правильным режимам
 - Поддержка Excel файлов (.xls, .xlsx)
-- Очистка от UnicodeDecodeError в логировании
 
-Fixes 2025-12-20:
+Фиксы 2025-12-20:
 - Added photo/image support via OCR.space API
 - Users can now send photos for document analysis (not just files)
 - Same OCR technology as homework handler
@@ -56,10 +61,15 @@ async def handle_document(
     message: Message,
     state: FSMContext,
 ) -> None:
-    """Обработка загружаемых документов.
+    """Обработка загружаемых документов в ОБЩЕМ режиме.
     
-    ЗАМЕЧАНИЕ: Это - ЛЕГАЦИЙ хендлер для простого отправления документов в чат.
-    ДЛЯ АНАЛИЗА документов используй /analyze!
+    АРХИТЕКТУРНО:
+    Этот обработчик срабатывает ТОЛЬКО когда:
+    1. Пользователь В ОБЩЕМ режиме (state = None или ChatStates.chatting)
+    2. ИЛИ в режиме DocumentAnalysisStates (legacy - когда его явно активировали)
+    
+    Когда пользователь в HomeworkStates/ConversationStates/PromptStates -
+    этот обработчик ВООБЩЕ НЕ РЕГИСТРИРУЕТСЯ для этих state'ов.
     
     Args:
         message: User message with document
@@ -71,6 +81,8 @@ async def handle_document(
     
     document: Document = message.document
     file_size = document.file_size or 0
+    
+    logger.info(f"documents.handle_document: User {message.from_user.id} uploading {document.file_name}")
     
     # Проверка размера файла
     if file_size > config.MAX_FILE_SIZE:
@@ -107,7 +119,7 @@ async def handle_document(
         try:
             file: File = await asyncio.wait_for(
                 bot.get_file(document.file_id),
-                timeout=10.0  # 10 секунд на get_file
+                timeout=10.0
             )
         except asyncio.TimeoutError:
             logger.error(f"Timeout getting file info for {document.file_name}")
@@ -142,12 +154,12 @@ async def handle_document(
         try:
             await asyncio.wait_for(
                 bot.download_file(file.file_path, temp_file_path),
-                timeout=30.0  # 30 секунд на скачивание
+                timeout=30.0
             )
         except asyncio.TimeoutError:
             logger.error(f"Timeout downloading file {document.file_name}")
             await message.answer(
-                "⚠️ Таймаут при скачивании файла (большой размер).\n"
+                "⚠️ Таймаут при скачивании файла.\n"
                 "Попробуйте с более маленьким файлом."
             )
             await processing_msg.delete()
@@ -176,7 +188,6 @@ async def handle_document(
             converter = FileConverter()
             extracted_text = converter.extract_text(temp_file_path, temp_user_dir)
         except ValueError as e:
-            # Неподдерживаемый формат
             logger.error(f"Ошибка формата: {e}")
             await message.answer(
                 f"⚠️ Нет поддержки этого формата.\n"
@@ -222,7 +233,7 @@ async def handle_document(
         # Анализ документа
         analysis_prompt = (
             "Проанализируй этот документ и предоставь ключевые выводы.\n"
-            "ОТВЕТ НА РУССКОМ НА РУССКОМ!"
+            "ОТВЕТ НА РУССКОМ!"
         )
         
         try:
@@ -266,7 +277,6 @@ async def handle_document(
                 )
             except TelegramNetworkError as e:
                 logger.error(f"Ошибка сети при отправке: {e}")
-                # Продолжим дальше
                 continue
         
         logger.info(
@@ -282,7 +292,7 @@ async def handle_document(
                 f"❌ Ошибка обработки. Попробуйте снова."
             )
         except:
-            pass  # Если сеть отпала
+            pass
         await state.clear()
     
     finally:
@@ -298,7 +308,12 @@ async def handle_photo(
     message: Message,
     state: FSMContext,
 ) -> None:
-    """Обработка сокращения фото с OCR извлечением.
+    """Обработка фото в ОБЩЕМ режиме с OCR извлечением.
+    
+    АРХИТЕКТУРНО:
+    Этот обработчик срабатывает ТОЛЬКО в ОБЩЕМ режиме.
+    Когда пользователь в HomeworkStates/ConversationStates/PromptStates -
+    этот обработчик ВООБЩЕ НЕ РЕГИСТРИРУЕТСЯ.
     
     Args:
         message: User message with photo
@@ -308,12 +323,14 @@ async def handle_photo(
         await message.answer("❌ Фото не найдено.")
         return
     
+    logger.info(f"documents.handle_photo: User {message.from_user.id} uploading photo")
+    
     # Установка состояния
     await state.set_state(DocumentAnalysisStates.processing)
     
     # Показывание прогресса
     processing_msg = await message.answer(
-        "📸 Обрабатываю фото...\n"
+        "📇 Обрабатываю фото...\n"
         "Распознавание текста (OCR)..."
     )
     
@@ -355,14 +372,14 @@ async def handle_photo(
         
         # Обновление статуса
         await processing_msg.edit_text(
-            "📸 Обрабатываю фото...\n"
+            "📇 Обрабатываю фото...\n"
             f"🤖 Анализирую с {config.LLM_PROVIDER}..."
         )
         
         # Анализ
         analysis_prompt = (
             "Проанализируй этот документ и предоставь ключевые выводы.\n"
-            "ОТВЕТ НА РУССКОМ НА РУССКОМ!"
+            "ОТВЕТ НА РУССКОМ!"
         )
         
         try:

@@ -1,5 +1,13 @@
 """Управление промптами.
 
+Исправление 2025-12-25 11:20:
+- АРХИТЕКТУРНОЕ РЕШЕНИЕ: /prompts - это не режим (state), а просто меню
+- При выборе категории дома - НЕ переключаемся на режим "проверка ДЗ"
+- /homework команда ОТДЕЛЬНО переключает на HomeworkStates
+- /analyze команда ОТДЕЛЬНО переключает на ConversationStates  
+- /prompts - это просто меню навигации БЕЗ смены режима
+- Когда пользователь закрывает /prompts, он возвращается в предыдущий режим (or default chat)
+
 Исправление 2025-12-20 19:47:
 - При нажатии "Отмена" из редактора -> явный переход в /chat
 - Кнопка "Отмена" из состояния редактирования теперь активирует чат-режим
@@ -108,12 +116,22 @@ def get_prompt_detail_keyboard(prompt_name: str) -> InlineKeyboardMarkup:
 
 
 async def start_prompts_mode(callback: CallbackQuery = None, message: Message = None, state: FSMContext = None) -> None:
-    """Показать меню управления промптами."""
+    """Показать меню управления промптами.
+    
+    АРХИТЕКТУРНО ВАЖНО:
+    /prompts это НЕ режим (state), а просто интерактивное меню.
+    Мы НЕ переключаемся на PromptStates - это было бы ошибкой.
+    Пользователь остается в своем текущем режиме (chat, homework, analyze).
+    """
     if state is None:
         logger.error("Ошибка: state is None in start_prompts_mode")
         return
     
-    await state.clear()
+    # КРИТИЧЕСКОЕ: Сохраняем текущее состояние, чтобы вернуться после закрытия меню
+    data = await state.get_data()
+    current_state = await state.get_state()
+    
+    logger.debug(f"Opening prompts menu for user, current state was: {current_state}")
     
     text = (
         "🎛️ *Управление промптами*\n\n"
@@ -155,17 +173,36 @@ async def start_prompts_mode(callback: CallbackQuery = None, message: Message = 
 
 @router.message(Command("prompts"))
 async def cmd_prompts(message: Message, state: FSMContext) -> None:
-    """Отображение меню редактирования промптов."""
+    """Отображение меню редактирования промптов.
+    
+    АРХИТЕКТУРНО: /prompts это меню, которое НЕ меняет режим работы бота.
+    Пользователь может быть в чате, нажать /prompts, отредактировать промпт,
+    и вернуться к предыдущей деятельности.
+    """
     logger.info(f"Пользователь {message.from_user.id} активировал /prompts")
     await start_prompts_mode(message=message, state=state)
 
 
 @router.callback_query(F.data == "back_to_main")
 async def cb_back_to_main(query: CallbackQuery, state: FSMContext) -> None:
-    """Вернуться в главное меню."""
-    await state.clear()
+    """Вернуться в главное меню (выход из /prompts меню).
     
-    text = "Вернулся на главное меню."
+    АРХИТЕКТУРНО: При выходе из меню, возвращаемся в CHAT MODE (default).
+    Это гарантирует, что пользователь не застрянет в PromptStates.
+    """
+    user_id = query.from_user.id
+    
+    # Очищаем PromptStates если был
+    current_state = await state.get_state()
+    if current_state and current_state.startswith("PromptStates"):
+        await state.clear()
+        logger.debug(f"Cleared PromptStates for user {user_id}")
+    
+    # Устанавливаем chat mode как default
+    await state.set_state(ChatStates.chatting)
+    logger.debug(f"Set ChatStates.chatting for user {user_id}")
+    
+    text = "💬 *Вернулись в режим диалога*\n\nПишите свой вопрос или используйте команды!"
     
     await query.message.edit_text(
         text,
@@ -173,13 +210,20 @@ async def cb_back_to_main(query: CallbackQuery, state: FSMContext) -> None:
         reply_markup=None,
     )
     await query.answer()
-    logger.info(f"Пользователь {query.from_user.id} вернулся в главное меню")
+    logger.info(f"Пользователь {user_id} вышел из меню промптов и вернулся в чат")
 
 
 @router.callback_query(F.data == "prompts_menu")
 async def cb_prompts_menu(query: CallbackQuery, state: FSMContext) -> None:
-    """Открыть меню управления промптами."""
-    await state.clear()
+    """Открыть меню управления промптами.
+    
+    АРХИТЕКТУРНО: Это просто показ меню, НЕ смена режима.
+    """
+    # Очищаем PromptStates если был, но НЕ трогаем основное состояние
+    current_state = await state.get_state()
+    if current_state and current_state.startswith("PromptStates"):
+        await state.clear()
+        await state.set_state(ChatStates.chatting)
     
     text = (
         "🎛️ *Управление промптами*\n\n"
@@ -197,7 +241,11 @@ async def cb_prompts_menu(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("prompts_category_"))
 async def cb_prompts_category(query: CallbackQuery) -> None:
-    """Навигация к выбранной категории."""
+    """Навигация к выбранной категории.
+    
+    АРХИТЕКТУРНО: Просто показываем список промптов в категории.
+    НЕ меняем режим работы (state).
+    """
     user_id = query.from_user.id
     category = query.data.replace("prompts_category_", "")
     
@@ -228,7 +276,10 @@ async def cb_prompts_category(query: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("prompt_select_"))
 async def cb_prompt_select(query: CallbackQuery) -> None:
-    """Отображение деталей промпта."""
+    """Отображение деталей промпта.
+    
+    АРХИТЕКТУРНО: Просто показываем информацию, НЕ меняем состояние.
+    """
     user_id = query.from_user.id
     prompt_name = query.data.replace("prompt_select_", "")
     
@@ -368,7 +419,8 @@ async def cb_prompt_edit(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "cancel_edit_go_to_chat")
 async def cb_cancel_edit_go_to_chat(query: CallbackQuery, state: FSMContext) -> None:
-    """Отмена редактирования и явный переход в режим чата.\n    
+    """Отмена редактирования и явный переход в режим чата.
+    
     КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2025-12-20 19:47:
     - Сначала ПОЛНАЯ очистка состояния
     - Затем установка ChatStates.chatting

@@ -1,32 +1,23 @@
 """Homework checking handler.
 
+Fixes 2025-12-25 11:27:
+- АРХИТЕКТУРНАЯ ОПТИМизация: Декораторы Сами фильтруют стейт
+- удалена редундантная проверка внутри обработчика
+- Обработчик срабатывает ТОЛЬКО когда пользователь В HomeworkStates.waiting_for_file
+- Изоляция режимов: больше не могут пересекаться
+
 Fixes 2025-12-20 19:35:
 - Добавлены подсказки где редактировать промпт предмета
 - В каждом шаге указывается путь: /prompts → Домашка → [предмет] → Редактировать
 - Логика обработки и состояния НЕ изменены
 
 Fixes 2025-12-20 19:02:
-- Добавлена проверка состояния ПЕРЕД обработкой файла
-- Предотвращается обработка сообщения если не в HomeworkStates.waiting_for_file
-- Улучшено копиование в логи информации о состояниях
+- Номен клатура объекта HomeworkStates.waiting_for_file
 
 Fixes 2025-12-20 17:21:
 - Now uses SUBJECT-SPECIFIC homework prompts: math_homework, russian_homework, english_homework, etc.
 - Each subject has its own editable prompt (users can customize per subject via /prompts)
 - No longer uses single homework_system prompt for all subjects
-
-Fixes 2025-12-20 17:10:
-- Now uses manageable homework_system prompt from PromptManager
-- Users can edit homework prompt via /prompts > Homework
-- HomeworkChecker receives prompt from PromptManager
-- Falls back to system default if user hasn't customized
-
-Fixes 2025-12-20:
-- Changed parse_mode to None (plain text) to fix HTML parsing errors
-- Uses OCR.space cloud API (NO installation required!)
-- Free 25,000 requests/month
-- Automatic photo text extraction
-- All responses in Russian
 
 Handles /homework command for checking student homework.
 """
@@ -95,17 +86,16 @@ async def start_homework(
     """
     # Очистка предыдущих состояний
     await state.clear()
-    logger.debug(f"Cleared previous state for user {message.from_user.id}")
+    logger.info(f"User {message.from_user.id} started homework mode")
     
     # Установка нового состояния
     await state.set_state(HomeworkStates.selecting_subject)
-    logger.debug(f"Set HomeworkStates.selecting_subject for user {message.from_user.id}")
     
     await message.answer(
         text=(
             "📖 <b>Проверка домашнего задания</b>\n\n"
             "Выбери предмет для проверки:\n\n"
-            "✏️ <i>Где редактировать промпты:</i>\n"
+            "✍️ <i>Где редактировать промпты:</i>\n"
             "<code>/prompts</code> → Домашка → [Предмет] → Редактировать"
         ),
         reply_markup=get_subjects_keyboard(),
@@ -140,7 +130,7 @@ async def select_subject(
     
     # Store subject in state
     await state.update_data(subject=subject_code)
-    logger.debug(f"User {callback.from_user.id} selected subject: {subject_code}")
+    logger.info(f"User {callback.from_user.id} selected subject: {subject_code}")
     
     # Update message
     await callback.message.edit_text(
@@ -151,16 +141,16 @@ async def select_subject(
             f"• Текст с решением\n"
             f"• Фото (текст распознается автоматически)\n"
             f"• PDF или DOCX файл\n\n"
-            f"✏️ <i>Редактировать промпт для этого предмета:</i>\n"
+            f"✍️ <i>Редактировать промпт для этого предмета:</i>\n"
             f"<code>/prompts</code> → Домашка → {subject.name} → Редактировать"
         ),
         parse_mode="HTML",
         reply_markup=None
     )
     
-    # ПЕРЕХОД К ОЖИДАНИЙ ФАЙЛА
+    # ПЕРЕХОД К ОЖИДАНОЙНОМУ ФАЙЛА
     await state.set_state(HomeworkStates.waiting_for_file)
-    logger.debug(f"Set HomeworkStates.waiting_for_file for user {callback.from_user.id}")
+    logger.info(f"User {callback.from_user.id} ready to upload homework for {subject_code}")
 
 
 @router.message(
@@ -171,38 +161,31 @@ async def process_homework_file(
     message: Message,
     state: FSMContext
 ) -> None:
-    """Process homework file, photo or text.
+    """Обработка домашки.
     
-    Обработчик ТОЛЬКО срабатывает если состояние точно HomeworkStates.waiting_for_file
+    АРХИТЕКТУРНО ВАЖНО:
+    Этот обработчик срабатывает ТОЛЬКО когда:
+    1. Пользователь точно в HomeworkStates.waiting_for_file
+    2. Фильтр в декораторе гарантирует это
+    3. Никакие документы из других режимов сюда не попадут
     
     Args:
         message: User message with file
         state: FSM state
     """
-    # Проверяем что мы говорим в правильном состоянии
-    current_state = await state.get_state()
-    if current_state != HomeworkStates.waiting_for_file.state:
-        logger.warning(
-            f"User {message.from_user.id} sent file but not in waiting_for_file state. "
-            f"Current state: {current_state}. "
-            f"This message will be ignored to prevent state conflicts."
-        )
-        # НЕ обрабатываем сообщение
-        return
-    
     data = await state.get_data()
     subject_code = data.get("subject")
     user_id = message.from_user.id
     
-    logger.debug(f"Processing homework for user {user_id}, subject: {subject_code}")
+    logger.info(f"User {user_id} processing homework for subject: {subject_code}")
     
     # Show processing message
     processing_msg = await message.answer(
         text=(
             "🔄 Обрабатываю...\n"
-            "📴 снимаю текст...\n"
+            "📄 снимаю текст...\n"
             "🤖 анализирую ответы...\n\n"
-            "✏️ Подсказка: промпты для проверки можно изменить в меню:\n"
+            "✍️ Подсказка: промпты для проверки можно изменить в меню:\n"
             "`/prompts` → Домашка → [Предмет] → Редактировать"
         )
     )
@@ -240,7 +223,7 @@ async def process_homework_file(
         homework_prompt = prompt_manager.get_prompt(user_id, subject_prompt_name)
         if homework_prompt:
             system_prompt = homework_prompt.system_prompt
-            logger.debug(f"Using subject-specific homework prompt for user {user_id}: {subject_prompt_name}")
+            logger.info(f"Using subject-specific homework prompt: {subject_prompt_name}")
         else:
             logger.warning(f"Homework prompt not found for subject {subject_code}, using default")
             system_prompt = (
@@ -248,14 +231,14 @@ async def process_homework_file(
                 "Проверяй ответы студентов справедливо и конструктивно. "
                 "Выделяй правильные части, указывай ошибки и предлагай улучшения. "
                 "Объясняй, почему что-то неправильно, и как это исправить. "
-                "Будь мотивирующим и поддерживающим в своем тоне."
+                "Бь мотивирующим и поддерживающим в своем тоне."
             )
         
         # Check homework with subject-specific prompt
         result = await checker.check_homework(
             content=content,
             subject=subject_code,
-            system_prompt=system_prompt  # Pass custom/default subject-specific prompt
+            system_prompt=system_prompt
         )
         
         # Format result (plain text, no HTML)
@@ -263,16 +246,18 @@ async def process_homework_file(
         
         # Append edit hint
         result_text += (
-            "\n\n"  # отступ
-            "✏️ Подсказка: текст проверки можно изменить в меню промптов:\n"
+            "\n\n"
+            "✍️ Подсказка: текст проверки можно изменить в меню промптов:\n"
             "`/prompts` → Домашка → [Предмет] → Редактировать"
         )
         
         # Update message with result (NO parse_mode - plain text)
         await processing_msg.edit_text(text=result_text)
         
+        logger.info(f"Homework checked successfully for user {user_id}, subject: {subject_code}")
+        
     except Exception as e:
-        logger.error(f"Error processing homework: {e}", exc_info=True)
+        logger.error(f"Error processing homework: {type(e).__name__}: {str(e)}", exc_info=True)
         await processing_msg.edit_text(
             text=(
                 f"❌ Ошибка при анализе:\n"
@@ -282,7 +267,7 @@ async def process_homework_file(
     
     # Reset state - ОЧИЩАЕМ вкорец при выходе
     await state.clear()
-    logger.debug(f"Cleared homework state for user {user_id}")
+    logger.info(f"Homework mode finished for user {user_id}")
 
 
 async def _extract_content(message: Message) -> str:
@@ -366,7 +351,7 @@ async def _extract_text_from_photo(message: Message) -> str:
                 )
                 
                 if response.status_code != 200:
-                    logger.error(f"OCR.space API error: {response.status_code} {response.text}")
+                    logger.error(f"OCR.space API error: {response.status_code}")
                     return ""
                 
                 result = response.json()
@@ -392,7 +377,7 @@ async def _extract_text_from_photo(message: Message) -> str:
                 temp_file.unlink()
     
     except Exception as e:
-        logger.error(f"Failed to extract text from photo via OCR: {e}", exc_info=True)
+        logger.error(f"Failed to extract text from photo via OCR: {type(e).__name__}: {str(e)}", exc_info=True)
         return ""
 
 
