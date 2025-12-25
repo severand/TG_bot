@@ -1,13 +1,20 @@
-"""Document handlers for file uploads and processing.
+"""Документ хандлеры для загружения и обработки файлов.
 
-Fixes 2025-12-20 23:00:
+Фикс 2025-12-25 11:20:
+- АРХИТЕКТУРНОЕ РЕШЕНИЕ: Гварды стейта в начало хандлера
+- Когда пользователь в HomeworkStates, НЕ перехватываем их
+- Когда в ConversationStates, НЕ перехватываем
+- Когда в PromptStates, НЕ перехватываем
+- Гарантируем, что документы/фото идут в ригхтные хандлеры
+
+Фикс 2025-12-20 23:00:
 - Нормальная обработка timeout/network ошибок
 - Graceful error handling вместо падения бота
 - Проверка распределения файлов по правильным режимам
 - Поддержка Excel файлов (.xls, .xlsx)
 - Очистка от UnicodeDecodeError в логировании
 
-Fixes 2025-12-20:
+Фикс 2025-12-20:
 - Added photo/image support via OCR.space API
 - Users can now send photos for document analysis (not just files)
 - Same OCR technology as homework handler
@@ -31,6 +38,9 @@ from aiogram.exceptions import TelegramNetworkError
 
 from app.config import get_settings
 from app.states.analysis import DocumentAnalysisStates
+from app.states.homework import HomeworkStates
+from app.states.conversation import ConversationStates
+from app.states.prompts import PromptStates
 from app.services.file_processing.converter import FileConverter
 from app.services.llm.llm_factory import LLMFactory
 from app.utils.text_splitter import TextSplitter
@@ -51,6 +61,33 @@ llm_factory = LLMFactory(
 )
 
 
+def _should_handle_document(current_state: str) -> bool:
+    """Проверить должна ли documents handler обработать это сообщение.
+    
+    Пользователь в другом режиме (проверка дз, анализ, отключение промптов) -
+    Отяазываем, пусть специализированные хандлеры обработают.
+    """
+    if not current_state:
+        # Эм состояния нет - это чат или старт, ок
+        return True
+    
+    # НУ-НУ для других режимов
+    if current_state.startswith("HomeworkStates"):
+        logger.debug("documents handler: Skipping - user in HomeworkStates")
+        return False
+    
+    if current_state.startswith("ConversationStates"):
+        logger.debug("documents handler: Skipping - user in ConversationStates")
+        return False
+    
+    if current_state.startswith("PromptStates"):
+        logger.debug("documents handler: Skipping - user in PromptStates")
+        return False
+    
+    # Ок для других
+    return True
+
+
 @router.message(F.document)
 async def handle_document(
     message: Message,
@@ -58,13 +95,23 @@ async def handle_document(
 ) -> None:
     """Обработка загружаемых документов.
     
-    ЗАМЕЧАНИЕ: Это - ЛЕГАЦИЙ хендлер для простого отправления документов в чат.
-    ДЛЯ АНАЛИЗА документов используй /analyze!
+    АРХИТЕКТУРНО ВАЖНО:
+    Это гвардирует кнопки документов только в легаци генерал моде.
+    Когда пользователь в /homework, /analyze, или броузирояния /prompts -
+    быть специалистическим хандлерам для обработки.
     
     Args:
         message: User message with document
         state: FSM state
     """
+    # Проверить стейт, если не чат режим - спрости
+    current_state = await state.get_state()
+    if not _should_handle_document(current_state):
+        logger.debug(
+            f"documents.handle_document: Skipping (state={current_state})"
+        )
+        return
+    
     if not message.document:
         await message.answer("❌ Документ не зарегистрирован.")
         return
@@ -300,10 +347,23 @@ async def handle_photo(
 ) -> None:
     """Обработка сокращения фото с OCR извлечением.
     
+    АРХИТЕКТУРНО ВАЖНО:
+    Гвардируют фото только в легаци генерал моде.
+    Когда пользователь в /homework, /analyze, или броузирояния /prompts -
+    дать специалистическим хандлерам.
+    
     Args:
         message: User message with photo
         state: FSM state
     """
+    # Проверить стейт, если не чат режим - спрости
+    current_state = await state.get_state()
+    if not _should_handle_document(current_state):
+        logger.debug(
+            f"documents.handle_photo: Skipping (state={current_state})"
+        )
+        return
+    
     if not message.photo:
         await message.answer("❌ Фото не найдено.")
         return
@@ -313,7 +373,7 @@ async def handle_photo(
     
     # Показывание прогресса
     processing_msg = await message.answer(
-        "📸 Обрабатываю фото...\n"
+        "📇 Обрабатываю фото...\n"
         "Распознавание текста (OCR)..."
     )
     
@@ -355,7 +415,7 @@ async def handle_photo(
         
         # Обновление статуса
         await processing_msg.edit_text(
-            "📸 Обрабатываю фото...\n"
+            "📇 Обрабатываю фото...\n"
             f"🤖 Анализирую с {config.LLM_PROVIDER}..."
         )
         
