@@ -1,12 +1,12 @@
 """Документ хандлеры для загружения и обработки файлов.
 
-Фикс 2025-12-25 12:27:
-- Логируем сырой текст после экстракции и OCR
-- Логируем system_prompt (общий для всех документов)
-- Логируем user_prompt и его размер
-
 Handles file uploads, processing, and analysis responses.
 Supports multiple LLM providers with fallback.
+
+UPDATED 2025-12-25 14:45:
+- УДАЛЕНЫ дубли логирования текстов и промптов
+- Все логирование теперь в replicate_client.py
+- See replicate_client.py for [LLM TEXT], [LLM SYSTEM PROMPT], [LLM USER PROMPT]
 """
 
 import logging
@@ -200,8 +200,7 @@ async def handle_document(
             await state.clear()
             return
         
-        logger.info(f"[DOCUMENTS TEXT] User {user_id}: Экстрактировано {len(extracted_text)} символов")
-        logger.info(f"[DOCUMENTS TEXT RAW] User {user_id} ({len(extracted_text)} chars):\n{extracted_text[:500]}..." if len(extracted_text) > 500 else f"[DOCUMENTS TEXT RAW] User {user_id}:\n{extracted_text}")
+        logger.info(f"Document extracted {len(extracted_text)} chars for user {user_id}")
         
         await state.update_data(
             extracted_text=extracted_text,
@@ -219,21 +218,18 @@ async def handle_document(
             "ОТВЕТ НА РУССКОМ!"
         )
         
-        # LOG: Общий system prompt для анализа документов
         system_prompt = (
             "Ты внимательный аналитик. "
             "Помоги разбераться в материалах документа."
         )
-        logger.info(f"[DOCUMENTS SYSTEM PROMPT] User {user_id}:\n{system_prompt}")
-        
-        # LOG: User prompt
-        logger.info(f"[DOCUMENTS USER PROMPT] User {user_id}:\n{analysis_prompt}")
         
         try:
             analysis_result = await llm_factory.analyze_document(
                 extracted_text,
                 analysis_prompt,
+                system_prompt=system_prompt,
                 use_streaming=False,
+                user_id=user_id,
             )
         except Exception as e:
             logger.error(f"Ошибка ЛЛМ: {type(e).__name__}: {str(e)[:100]}")
@@ -252,7 +248,7 @@ async def handle_document(
             await state.clear()
             return
         
-        logger.info(f"Анализ окончен ({len(analysis_result)} символов)")
+        logger.info(f"Analysis completed ({len(analysis_result)} chars) for user {user_id}")
         
         await processing_msg.delete()
         
@@ -271,13 +267,13 @@ async def handle_document(
                 continue
         
         logger.info(
-            f"Анализ отправлен {user_id} "
-            f"({len(chunks)} сообщений) [{config.LLM_PROVIDER}]"
+            f"Analysis sent to {user_id} "
+            f"({len(chunks)} messages) [{config.LLM_PROVIDER}]"
         )
         await state.clear()
     
     except Exception as e:
-        logger.error(f"Ошибка работы: {type(e).__name__}: {str(e)[:100]}")
+        logger.error(f"Error in handle_document: {type(e).__name__}: {str(e)[:100]}")
         try:
             await message.answer(
                 f"❌ Ошибка обработки. Попробуйте снова."
@@ -351,8 +347,7 @@ async def handle_photo(
             await state.clear()
             return
         
-        logger.info(f"[DOCUMENTS TEXT] User {user_id}: OCR Экстрактировано {len(extracted_text)} символов")
-        logger.info(f"[DOCUMENTS TEXT RAW] User {user_id} ({len(extracted_text)} chars):\n{extracted_text}")
+        logger.info(f"OCR extracted {len(extracted_text)} chars for user {user_id}")
         
         await state.update_data(
             extracted_text=extracted_text,
@@ -374,14 +369,14 @@ async def handle_photo(
             "Ты внимательный аналитик. "
             "Помоги разбераться в материалах фото."
         )
-        logger.info(f"[DOCUMENTS SYSTEM PROMPT] User {user_id}:\n{system_prompt}")
-        logger.info(f"[DOCUMENTS USER PROMPT] User {user_id}:\n{analysis_prompt}")
         
         try:
             analysis_result = await llm_factory.analyze_document(
                 extracted_text,
                 analysis_prompt,
+                system_prompt=system_prompt,
                 use_streaming=False,
+                user_id=user_id,
             )
         except Exception as e:
             logger.error(f"Ошибка ЛЛМ: {type(e).__name__}: {str(e)[:100]}")
@@ -400,7 +395,7 @@ async def handle_photo(
             await state.clear()
             return
         
-        logger.info(f"Анализ окончен ({len(analysis_result)} символов)")
+        logger.info(f"Analysis completed ({len(analysis_result)} chars) for user {user_id}")
         
         await processing_msg.delete()
         
@@ -415,17 +410,17 @@ async def handle_photo(
                     parse_mode="Markdown",
                 )
             except TelegramNetworkError as e:
-                logger.error(f"Ошибка сети: {e}")
+                logger.error(f"Network error sending: {e}")
                 continue
         
         logger.info(
-            f"Осанализ фото {user_id} "
-            f"({len(chunks)} сообщений) [{config.LLM_PROVIDER}]"
+            f"Photo analysis sent to {user_id} "
+            f"({len(chunks)} messages) [{config.LLM_PROVIDER}]"
         )
         await state.clear()
     
     except Exception as e:
-        logger.error(f"Ошибка: {type(e).__name__}: {str(e)[:100]}")
+        logger.error(f"Error in handle_photo: {type(e).__name__}: {str(e)[:100]}")
         try:
             await message.answer(
                 f"❌ Ошибка. Попробуйте снова."
@@ -489,28 +484,28 @@ async def _extract_text_from_photo(
             )
             
             if response.status_code != 200:
-                logger.error(f"ОЧР ошибка: {response.status_code}")
+                logger.error(f"OCR error: {response.status_code}")
                 return ""
             
             result = response.json()
             
             if result.get("IsErroredOnProcessing"):
                 error_msg = result.get("ErrorMessage", "Unknown")
-                logger.error(f"ОЧР ошибка: {error_msg}")
+                logger.error(f"OCR error: {error_msg}")
                 return ""
             
             parsed_results = result.get("ParsedResults", [])
             if not parsed_results:
-                logger.warning("ОЧР: Текст не найден")
+                logger.warning("OCR: No text detected")
                 return ""
             
             text = parsed_results[0].get("ParsedText", "")
-            logger.info(f"ОЧР: Выделено {len(text)} символов")
+            logger.info(f"OCR: Extracted {len(text)} chars")
             return text.strip()
     
     except asyncio.TimeoutError:
-        logger.error("ОЧР: Таймаут")
+        logger.error("OCR: Timeout")
         return ""
     except Exception as e:
-        logger.error(f"ОЧР ошибка: {type(e).__name__}: {str(e)}")
+        logger.error(f"OCR error: {type(e).__name__}: {str(e)}")
         return ""
