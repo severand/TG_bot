@@ -1,5 +1,9 @@
 """Conversation mode handlers for interactive document analysis.
 
+UPDATED 2025-12-25 14:48:
+- Added user_id parameter to analyze_document calls
+- All logging now includes user context
+
 Fixes 2025-12-25 11:27:
 - АРХИТЕКТУРНАЯ ОПТИМизация: ЭКСПЛИЦИТНЫЕ state filters в декораторах
 - Обработчики срабатывают ТОЛЬКО когда пользователь В ConversationStates.ready
@@ -469,6 +473,7 @@ async def _perform_analysis(
     document_text = data.get("document_text")
     document_name = data.get("document_name", "document")
     selected_prompt_name = data.get("selected_prompt_name", "default")
+    user_id = message.from_user.id
     
     if not document_text:
         await message.answer("⚠️ Документ не загружен.")
@@ -479,7 +484,7 @@ async def _perform_analysis(
         return
     
     logger.info(
-        f"User {message.from_user.id} starting analysis with prompt '{selected_prompt_name}'"
+        f"User {user_id} starting analysis with prompt '{selected_prompt_name}'"
     )
     
     # Show typing
@@ -487,10 +492,10 @@ async def _perform_analysis(
     
     try:
         # Get selected prompt
-        prompt = prompt_manager.get_prompt(message.from_user.id, selected_prompt_name)
+        prompt = prompt_manager.get_prompt(user_id, selected_prompt_name)
         
         if not prompt:
-            prompt = prompt_manager.get_prompt(message.from_user.id, "default")
+            prompt = prompt_manager.get_prompt(user_id, "default")
         
         if not prompt:
             await message.answer(
@@ -500,12 +505,13 @@ async def _perform_analysis(
         # Build analysis command
         analysis_command = prompt.user_prompt_template if prompt else "Проанализируй этот документ и предоставь ключевые выводы."
         
-        # Analyze
+        # Analyze with user_id for logging
         analysis_result = await llm_factory.analyze_document(
             document_text,
             analysis_command,
             system_prompt=prompt.system_prompt if prompt else None,
             use_streaming=False,
+            user_id=user_id,
         )
         
         if not analysis_result:
@@ -548,12 +554,12 @@ async def _perform_analysis(
             await status_msg.delete()
         
         logger.info(
-            f"Analysis completed for user {message.from_user.id}: "
+            f"Analysis completed for user {user_id}: "
             f"{len(analysis_result)} chars in {len(chunks)} parts"
         )
         
         # CRITICAL: Return to chat mode after analysis completes
-        logger.info(f"User {message.from_user.id} returned to chat mode")
+        logger.info(f"User {user_id} returned to chat mode")
         await state.clear()
     
     except Exception as e:
