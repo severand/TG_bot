@@ -1,9 +1,16 @@
 """Homework checking handler.
 
+Fixes 2025-12-25 12:08:
+- ДОБАВЛЕНЫ детальные логи для отладки state transitions
+- Логируем КАКОЙ state установлен при выборе предмета
+- Логируем КАКОЙ prompt используется при обработке файла
+- Логируем текущий state когда обработчик срабатывает
+- Это поможет выяснить почему documents.py перехватывает фото
+
 Fixes 2025-12-25 11:27:
 - АРХИТЕКТУРНАЯ ОПТИМизация: Декораторы Сами фильтруют стейт
 - удалена редундантная проверка внутри обработчика
-- Обработчик срабатывает ТОЛЬКО когда пользователь В HomeworkStates.waiting_for_file
+- Обработчик срабатывается ТОЛЬКО когда пользователь В HomeworkStates.waiting_for_file
 - Изоляция режимов: больше не могут пересекаться
 
 Fixes 2025-12-20 19:35:
@@ -91,6 +98,10 @@ async def start_homework(
     # Установка нового состояния
     await state.set_state(HomeworkStates.selecting_subject)
     
+    # DEBUG LOG
+    current_state = await state.get_state()
+    logger.debug(f"[HOMEWORK DEBUG] User {message.from_user.id}: Set state to {current_state}")
+    
     await message.answer(
         text=(
             "📖 <b>Проверка домашнего задания</b>\n\n"
@@ -132,6 +143,10 @@ async def select_subject(
     await state.update_data(subject=subject_code)
     logger.info(f"User {callback.from_user.id} selected subject: {subject_code}")
     
+    # DEBUG LOG - показать текущий state перед переходом
+    current_state = await state.get_state()
+    logger.debug(f"[HOMEWORK DEBUG] User {callback.from_user.id}: Before transition, current state: {current_state}")
+    
     # Update message
     await callback.message.edit_text(
         text=(
@@ -148,8 +163,12 @@ async def select_subject(
         reply_markup=None
     )
     
-    # ПЕРЕХОД К ОЖИДАНОЙНОМУ ФАЙЛА
+    # ПЕРЕХОД К ОЖИДАЕМОМУ ФАЙЛА
     await state.set_state(HomeworkStates.waiting_for_file)
+    
+    # DEBUG LOG - показать state ПОСЛЕ установки
+    new_state = await state.get_state()
+    logger.debug(f"[HOMEWORK DEBUG] User {callback.from_user.id}: Set state to {new_state} for subject {subject_code}")
     logger.info(f"User {callback.from_user.id} ready to upload homework for {subject_code}")
 
 
@@ -176,6 +195,12 @@ async def process_homework_file(
     data = await state.get_data()
     subject_code = data.get("subject")
     user_id = message.from_user.id
+    
+    # DEBUG: Verify state
+    current_state = await state.get_state()
+    logger.debug(f"[HOMEWORK DEBUG] User {user_id}: process_homework_file called with state {current_state}")
+    logger.debug(f"[HOMEWORK DEBUG] User {user_id}: Content type: {message.content_type}")
+    logger.debug(f"[HOMEWORK DEBUG] User {user_id}: Subject from state: {subject_code}")
     
     logger.info(f"User {user_id} processing homework for subject: {subject_code}")
     
@@ -221,10 +246,15 @@ async def process_homework_file(
         # Get SUBJECT-SPECIFIC homework prompt (e.g., math_homework, russian_homework)
         subject_prompt_name = f"{subject_code}_homework"
         homework_prompt = prompt_manager.get_prompt(user_id, subject_prompt_name)
+        
+        # DEBUG LOG: What prompt we're using
         if homework_prompt:
+            logger.debug(f"[HOMEWORK DEBUG] User {user_id}: Using prompt '{subject_prompt_name}' (FOUND)")
+            logger.debug(f"[HOMEWORK DEBUG] User {user_id}: Prompt system_prompt preview: {homework_prompt.system_prompt[:100]}...")
             system_prompt = homework_prompt.system_prompt
             logger.info(f"Using subject-specific homework prompt: {subject_prompt_name}")
         else:
+            logger.debug(f"[HOMEWORK DEBUG] User {user_id}: Prompt '{subject_prompt_name}' NOT FOUND, using fallback")
             logger.warning(f"Homework prompt not found for subject {subject_code}, using default")
             system_prompt = (
                 "Ты опытный учитель и эксперт по проверке домашних заданий. "
