@@ -34,11 +34,12 @@ from app.services.llm.llm_factory import LLMFactory
 
 # Import RAG Manager
 try:
-    from rag_knowledge_base.rag_module.services.manager import RAGManager, RAGManagerError
+    from rag_knowledge_base.rag_module.services.manager import RAGManager
     from rag_knowledge_base.rag_module.config import get_config as get_rag_config
     RAG_AVAILABLE = True
 except ImportError:
     RAG_AVAILABLE = False
+    RAGManager = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -54,10 +55,10 @@ llm_factory = LLMFactory(
 )
 
 # Initialize RAG Manager (persistent storage with ChromaDB)
-rag_manager: Optional[RAGManager] = None
+rag_manager: Optional['RAGManager'] = None
 
 
-def get_rag_manager() -> RAGManager:
+def get_rag_manager() -> 'RAGManager':
     """Get or initialize RAG Manager.
     
     Returns:
@@ -72,7 +73,7 @@ def get_rag_manager() -> RAGManager:
     
     if rag_manager is None:
         try:
-            rag_manager = RAGManager()
+            rag_manager = RAGManager()  # type: ignore
             logger.info("RAG Manager initialized with persistent storage")
         except Exception as e:
             logger.error(f"Failed to initialize RAG Manager: {e}")
