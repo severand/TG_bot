@@ -79,6 +79,7 @@ class OpenAIClient:
         document_text: str,
         user_prompt: str,
         system_prompt: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> str:
         """Analyze document using GPT.
         
@@ -86,6 +87,7 @@ class OpenAIClient:
             document_text: Extracted document content
             user_prompt: User's analysis request
             system_prompt: Optional system prompt (uses default if None)
+            user_id: Optional user ID for logging context
             
         Returns:
             str: Analysis result from GPT
@@ -98,7 +100,8 @@ class OpenAIClient:
             >>> client = OpenAIClient(api_key="sk-...")
             >>> result = await client.analyze_document(
             ...     "Document content...",
-            ...     "Summarize the key points"
+            ...     "Summarize the key points",
+            ...     user_id=12345
             ... )
         """
         if not document_text or not document_text.strip():
@@ -120,8 +123,9 @@ class OpenAIClient:
         ]
         
         try:
+            log_prefix = f"User {user_id}" if user_id else "Unknown user"
             logger.info(
-                f"Calling OpenAI {self.model} for analysis "
+                f"[LLM TEXT] {log_prefix}: Calling OpenAI {self.model} for analysis "
                 f"(doc: {len(document_text)} chars)"
             )
             
@@ -136,7 +140,7 @@ class OpenAIClient:
             if not result:
                 raise ValueError("Empty response from API")
             
-            logger.info(f"Analysis completed ({len(result)} chars)")
+            logger.info(f"[LLM TEXT] {log_prefix}: Analysis completed ({len(result)} chars)")
             return result
         
         except RateLimitError as e:
@@ -167,11 +171,13 @@ class OpenAIClient:
     async def extract_entities(
         self,
         document_text: str,
+        user_id: Optional[int] = None,
     ) -> str:
         """Extract named entities and important information from document.
         
         Args:
             document_text: Document content
+            user_id: Optional user ID for logging context
             
         Returns:
             str: Extracted entities in structured format
@@ -187,18 +193,20 @@ class OpenAIClient:
             "Format as a clear, organized list."
         )
         
-        return await self.analyze_document(document_text, prompt)
+        return await self.analyze_document(document_text, prompt, user_id=user_id)
     
     async def summarize(
         self,
         document_text: str,
         max_length: int = 500,
+        user_id: Optional[int] = None,
     ) -> str:
         """Create concise summary of document.
         
         Args:
             document_text: Document content
             max_length: Maximum summary length in words
+            user_id: Optional user ID for logging context
             
         Returns:
             str: Document summary
@@ -208,11 +216,12 @@ class OpenAIClient:
             f"{max_length} words. Focus on the most important points."
         )
         
-        return await self.analyze_document(document_text, prompt)
+        return await self.analyze_document(document_text, prompt, user_id=user_id)
     
     async def find_risks_and_issues(
         self,
         document_text: str,
+        user_id: Optional[int] = None,
     ) -> str:
         """Identify risks, issues, and potential problems in document.
         
@@ -220,6 +229,7 @@ class OpenAIClient:
         
         Args:
             document_text: Document content
+            user_id: Optional user ID for logging context
             
         Returns:
             str: Analysis of risks and issues
@@ -234,4 +244,4 @@ class OpenAIClient:
             "Be thorough and specific."
         )
         
-        return await self.analyze_document(document_text, prompt)
+        return await self.analyze_document(document_text, prompt, user_id=user_id)
