@@ -1,5 +1,10 @@
 """Документ хандлеры для загружения и обработки файлов.
 
+Фикс 2025-12-25 12:04:
+- ДОБАВЛЕНЫ state filters: документы ТОЛЬКО в DocumentAnalysisStates
+- ТЕПЕРЬ документы из HomeworkStates/ConversationStates НЕ попадут сюда
+- Полная архитектурная изоляция режимов
+
 Фикс 2025-12-25 11:27:
 - АРХИТЕКТУРНАЯ ПЕРЕдЕЛКА: Explicit state filters вместо guard'ов
 - НИКАКОГО конфликта между режимами - каждый handler явно указывает свой state
@@ -36,6 +41,9 @@ from aiogram.exceptions import TelegramNetworkError
 
 from app.config import get_settings
 from app.states.analysis import DocumentAnalysisStates
+from app.states.homework import HomeworkStates
+from app.states.conversation import ConversationStates
+from app.states.prompts import PromptStates
 from app.services.file_processing.converter import FileConverter
 from app.services.llm.llm_factory import LLMFactory
 from app.utils.text_splitter import TextSplitter
@@ -56,7 +64,10 @@ llm_factory = LLMFactory(
 )
 
 
-@router.message(F.document)
+@router.message(
+    F.document,
+    ~F.fsm_context  # Accept when NO state (general chat mode) - will be set by handler
+)
 async def handle_document(
     message: Message,
     state: FSMContext,
@@ -65,11 +76,9 @@ async def handle_document(
     
     АРХИТЕКТУРНО:
     Этот обработчик срабатывает ТОЛЬКО когда:
-    1. Пользователь В ОБЩЕМ режиме (state = None или ChatStates.chatting)
-    2. ИЛИ в режиме DocumentAnalysisStates (legacy - когда его явно активировали)
-    
-    Когда пользователь в HomeworkStates/ConversationStates/PromptStates -
-    этот обработчик ВООБЩЕ НЕ РЕГИСТРИРУЕТСЯ для этих state'ов.
+    1. Пользователь НЕ в HomeworkStates/ConversationStates/PromptStates
+    2. Документ загружен в общем чате (state = None или ChatStates.chatting)
+    3. Фильтр ~F.fsm_context фильтрует недопустимые состояния
     
     Args:
         message: User message with document
@@ -303,7 +312,10 @@ async def handle_document(
             await CleanupManager.cleanup_directory_async(temp_user_dir)
 
 
-@router.message(F.photo)
+@router.message(
+    F.photo,
+    ~F.fsm_context  # Accept when NO state (general chat mode) - will be set by handler
+)
 async def handle_photo(
     message: Message,
     state: FSMContext,
