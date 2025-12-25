@@ -10,7 +10,7 @@ Updated: 2025-12-25
 Architecture:
 - RAGManager: orchestrates all RAG operations
 - ChromaDB: persistent vector storage
-- Replicate LLM: intelligent analysis of search results
+- LLMFactory: intelligent analysis of search results
 - MenuManager: unified UI
 """
 
@@ -30,7 +30,7 @@ from app.config import get_settings
 from app.states.rag import RAGStates
 from app.utils.menu import MenuManager, create_keyboard
 from app.utils.cleanup import CleanupManager
-from app.services.llm.replicate_client import get_replicate_client
+from app.services.llm.llm_factory import LLMFactory
 
 # Import RAG Manager
 try:
@@ -43,6 +43,15 @@ except ImportError:
 logger = logging.getLogger(__name__)
 router = Router()
 config = get_settings()
+
+# Initialize LLM Factory for AI analysis
+llm_factory = LLMFactory(
+    primary_provider=config.LLM_PROVIDER,
+    openai_api_key=config.OPENAI_API_KEY or None,
+    openai_model=config.OPENAI_MODEL,
+    replicate_api_token=config.REPLICATE_API_TOKEN or None,
+    replicate_model=config.REPLICATE_MODEL,
+)
 
 # Initialize RAG Manager (persistent storage with ChromaDB)
 rag_manager: Optional[RAGManager] = None
@@ -523,27 +532,32 @@ async def handle_rag_search_query(message: Message, state: FSMContext) -> None:
         context = "\n".join(context_parts)
         
         # Create prompt for LLM
-        llm_prompt = (
-            f"На основе следующих фрагментов документов ответь на вопрос пользователя.\n"
-            f"Будь конкретен и ссылайся на документы.\n\n"
-            f"КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n{context}\n\n"
-            f"ВОПРОС ПОЛЬЗОВАТЕЛЯ: {query_text}\n\n"
-            f"ОТВЕТ (максимум 200 слов):"
+        llm_system_prompt = (
+            "Ты помощник, анализирующий документы. "
+            "Отвечай конкретно на основе представленного контекста. "
+            "Ссылайся на документы. Максимум 200 слов."
         )
         
-        # Get LLM client
-        replicate_client = get_replicate_client()
+        llm_user_prompt = (
+            f"На основе следующих фрагментов документов ответь на вопрос пользователя.\n\n"
+            f"КОНТЕКСТ ИЗ ДОКУМЕНТОВ:\n{context}\n\n"
+            f"ВОПРОС ПОЛЬЗОВАТЕЛЯ: {query_text}\n\n"
+            f"ОТВЕТ:"
+        )
         
-        # Call LLM for analysis (async)
-        logger.info(f"RAG: Calling LLM for analysis (query: {query_text[:50]})")
+        # Call LLM for analysis
+        logger.info(f"RAG: Calling LLM for analysis (query: {query_text[:50]}) for user {user_id}")
         
-        llm_response = ""
-        async for chunk in replicate_client.stream_prediction(
-            model="openai/gpt-4o-mini",
-            input_text=llm_prompt,
-            system_prompt="Ты помощник, анализирующий документы. Отвечай кратко и по делу.",
-        ):
-            llm_response += chunk
+        llm_response = await llm_factory.analyze_document(
+            context,
+            llm_user_prompt,
+            system_prompt=llm_system_prompt,
+            use_streaming=False,
+            user_id=user_id,
+        )
+        
+        if not llm_response:
+            llm_response = "❌ Не удалось получить ответ от AI"
         
         # Build response
         text = f"🎯 *Результаты поиска для:* `{query_text}`\n\n"
