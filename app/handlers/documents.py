@@ -1,20 +1,18 @@
 """Документ хандлеры для загружения и обработки файлов.
 
-Фикс 2025-12-25 11:20:
-- АРХИТЕКТУРНОЕ РЕШЕНИЕ: Гварды стейта в начало хандлера
-- Когда пользователь в HomeworkStates, НЕ перехватываем их
-- Когда в ConversationStates, НЕ перехватываем
-- Когда в PromptStates, НЕ перехватываем
-- Гарантируем, что документы/фото идут в ригхтные хандлеры
+Фикс 2025-12-25 11:27:
+- АРХИТЕКТУРНАЯ ПЕРЕдЕЛКА: Explicit state filters вместо guard'ов
+- НИКАКОГО конфликта между режимами - каждый handler явно указывает свой state
+- documents.py БОЛЬШЕ НЕ обрабатывает документы из других режимов
+- Обработчик срабатывает ТОЛЬКО когда пользователь в его режиме
+- Полная изоляция: chat mode (no state filter) -> document/photo -> analyze/homework обработчики
 
-Фикс 2025-12-20 23:00:
+Фиксы 2025-12-20 23:00:
 - Нормальная обработка timeout/network ошибок
 - Graceful error handling вместо падения бота
-- Проверка распределения файлов по правильным режимам
 - Поддержка Excel файлов (.xls, .xlsx)
-- Очистка от UnicodeDecodeError в логировании
 
-Фикс 2025-12-20:
+Фиксы 2025-12-20:
 - Added photo/image support via OCR.space API
 - Users can now send photos for document analysis (not just files)
 - Same OCR technology as homework handler
@@ -38,9 +36,6 @@ from aiogram.exceptions import TelegramNetworkError
 
 from app.config import get_settings
 from app.states.analysis import DocumentAnalysisStates
-from app.states.homework import HomeworkStates
-from app.states.conversation import ConversationStates
-from app.states.prompts import PromptStates
 from app.services.file_processing.converter import FileConverter
 from app.services.llm.llm_factory import LLMFactory
 from app.utils.text_splitter import TextSplitter
@@ -61,63 +56,33 @@ llm_factory = LLMFactory(
 )
 
 
-def _should_handle_document(current_state: str) -> bool:
-    """Проверить должна ли documents handler обработать это сообщение.
-    
-    Пользователь в другом режиме (проверка дз, анализ, отключение промптов) -
-    Отяазываем, пусть специализированные хандлеры обработают.
-    """
-    if not current_state:
-        # Эм состояния нет - это чат или старт, ок
-        return True
-    
-    # НУ-НУ для других режимов
-    if current_state.startswith("HomeworkStates"):
-        logger.debug("documents handler: Skipping - user in HomeworkStates")
-        return False
-    
-    if current_state.startswith("ConversationStates"):
-        logger.debug("documents handler: Skipping - user in ConversationStates")
-        return False
-    
-    if current_state.startswith("PromptStates"):
-        logger.debug("documents handler: Skipping - user in PromptStates")
-        return False
-    
-    # Ок для других
-    return True
-
-
 @router.message(F.document)
 async def handle_document(
     message: Message,
     state: FSMContext,
 ) -> None:
-    """Обработка загружаемых документов.
+    """Обработка загружаемых документов в ОБЩЕМ режиме.
     
-    АРХИТЕКТУРНО ВАЖНО:
-    Это гвардирует кнопки документов только в легаци генерал моде.
-    Когда пользователь в /homework, /analyze, или броузирояния /prompts -
-    быть специалистическим хандлерам для обработки.
+    АРХИТЕКТУРНО:
+    Этот обработчик срабатывает ТОЛЬКО когда:
+    1. Пользователь В ОБЩЕМ режиме (state = None или ChatStates.chatting)
+    2. ИЛИ в режиме DocumentAnalysisStates (legacy - когда его явно активировали)
+    
+    Когда пользователь в HomeworkStates/ConversationStates/PromptStates -
+    этот обработчик ВООБЩЕ НЕ РЕГИСТРИРУЕТСЯ для этих state'ов.
     
     Args:
         message: User message with document
         state: FSM state
     """
-    # Проверить стейт, если не чат режим - спрости
-    current_state = await state.get_state()
-    if not _should_handle_document(current_state):
-        logger.debug(
-            f"documents.handle_document: Skipping (state={current_state})"
-        )
-        return
-    
     if not message.document:
         await message.answer("❌ Документ не зарегистрирован.")
         return
     
     document: Document = message.document
     file_size = document.file_size or 0
+    
+    logger.info(f"documents.handle_document: User {message.from_user.id} uploading {document.file_name}")
     
     # Проверка размера файла
     if file_size > config.MAX_FILE_SIZE:
@@ -154,7 +119,7 @@ async def handle_document(
         try:
             file: File = await asyncio.wait_for(
                 bot.get_file(document.file_id),
-                timeout=10.0  # 10 секунд на get_file
+                timeout=10.0
             )
         except asyncio.TimeoutError:
             logger.error(f"Timeout getting file info for {document.file_name}")
@@ -189,12 +154,12 @@ async def handle_document(
         try:
             await asyncio.wait_for(
                 bot.download_file(file.file_path, temp_file_path),
-                timeout=30.0  # 30 секунд на скачивание
+                timeout=30.0
             )
         except asyncio.TimeoutError:
             logger.error(f"Timeout downloading file {document.file_name}")
             await message.answer(
-                "⚠️ Таймаут при скачивании файла (большой размер).\n"
+                "⚠️ Таймаут при скачивании файла.\n"
                 "Попробуйте с более маленьким файлом."
             )
             await processing_msg.delete()
@@ -223,7 +188,6 @@ async def handle_document(
             converter = FileConverter()
             extracted_text = converter.extract_text(temp_file_path, temp_user_dir)
         except ValueError as e:
-            # Неподдерживаемый формат
             logger.error(f"Ошибка формата: {e}")
             await message.answer(
                 f"⚠️ Нет поддержки этого формата.\n"
@@ -269,7 +233,7 @@ async def handle_document(
         # Анализ документа
         analysis_prompt = (
             "Проанализируй этот документ и предоставь ключевые выводы.\n"
-            "ОТВЕТ НА РУССКОМ НА РУССКОМ!"
+            "ОТВЕТ НА РУССКОМ!"
         )
         
         try:
@@ -313,7 +277,6 @@ async def handle_document(
                 )
             except TelegramNetworkError as e:
                 logger.error(f"Ошибка сети при отправке: {e}")
-                # Продолжим дальше
                 continue
         
         logger.info(
@@ -329,7 +292,7 @@ async def handle_document(
                 f"❌ Ошибка обработки. Попробуйте снова."
             )
         except:
-            pass  # Если сеть отпала
+            pass
         await state.clear()
     
     finally:
@@ -345,28 +308,22 @@ async def handle_photo(
     message: Message,
     state: FSMContext,
 ) -> None:
-    """Обработка сокращения фото с OCR извлечением.
+    """Обработка фото в ОБЩЕМ режиме с OCR извлечением.
     
-    АРХИТЕКТУРНО ВАЖНО:
-    Гвардируют фото только в легаци генерал моде.
-    Когда пользователь в /homework, /analyze, или броузирояния /prompts -
-    дать специалистическим хандлерам.
+    АРХИТЕКТУРНО:
+    Этот обработчик срабатывает ТОЛЬКО в ОБЩЕМ режиме.
+    Когда пользователь в HomeworkStates/ConversationStates/PromptStates -
+    этот обработчик ВООБЩЕ НЕ РЕГИСТРИРУЕТСЯ.
     
     Args:
         message: User message with photo
         state: FSM state
     """
-    # Проверить стейт, если не чат режим - спрости
-    current_state = await state.get_state()
-    if not _should_handle_document(current_state):
-        logger.debug(
-            f"documents.handle_photo: Skipping (state={current_state})"
-        )
-        return
-    
     if not message.photo:
         await message.answer("❌ Фото не найдено.")
         return
+    
+    logger.info(f"documents.handle_photo: User {message.from_user.id} uploading photo")
     
     # Установка состояния
     await state.set_state(DocumentAnalysisStates.processing)
@@ -422,7 +379,7 @@ async def handle_photo(
         # Анализ
         analysis_prompt = (
             "Проанализируй этот документ и предоставь ключевые выводы.\n"
-            "ОТВЕТ НА РУССКОМ НА РУССКОМ!"
+            "ОТВЕТ НА РУССКОМ!"
         )
         
         try:
