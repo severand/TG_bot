@@ -3,6 +3,11 @@
 Supports multiple LLM providers with fallback mechanism.
 Allows dynamic provider switching.
 
+UPDATED 2025-12-25 14:47:
+- Added user_id parameter to analyze_document
+- All logging now includes user context: [LLM TEXT] (User 12345)
+- Passed to replicate_client for unified logging
+
 Fixes 2025-12-21 14:32:
 - УМНАЯ СИСТЕМА RETRY:
   * 2 retry для primary перед fallback
@@ -29,6 +34,7 @@ class LLMProvider:
         document_text: str,
         user_prompt: str,
         system_prompt: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> str:
         """Analyze document.
         
@@ -36,6 +42,7 @@ class LLMProvider:
             document_text: Document content
             user_prompt: Analysis request
             system_prompt: Optional system prompt
+            user_id: Optional user ID for logging context
             
         Returns:
             str: Analysis result
@@ -148,6 +155,7 @@ class LLMFactory:
         user_prompt: str,
         system_prompt: Optional[str] = None,
         use_streaming: bool = False,
+        user_id: Optional[int] = None,
     ) -> Union[str, AsyncIterator[str]]:
         """Analyze document using primary or fallback provider.
         
@@ -156,12 +164,14 @@ class LLMFactory:
         - If OpenAI 403 (region) → return to Replicate
         - If timeout → retry with delay
         - Bot doesn't crash on API errors
+        - Logs include user context
         
         Args:
             document_text: Document content
             user_prompt: Analysis request
             system_prompt: Optional system prompt
             use_streaming: Return streaming iterator (Replicate only)
+            user_id: Optional user ID for logging context
             
         Returns:
             Union[str, AsyncIterator[str]]: Analysis result or stream
@@ -192,6 +202,7 @@ class LLMFactory:
                         document_text,
                         user_prompt,
                         system_prompt,
+                        user_id=user_id,
                     )
                 else:
                     logger.info(
@@ -202,6 +213,7 @@ class LLMFactory:
                         document_text,
                         user_prompt,
                         system_prompt,
+                        user_id=user_id,
                     )
             
             except Exception as e:
@@ -245,6 +257,7 @@ class LLMFactory:
                     document_text,
                     user_prompt,
                     system_prompt,
+                    user_id=user_id,
                 )
             except Exception as e2:
                 # If fallback is also OpenAI with 403, try primary again
@@ -258,6 +271,7 @@ class LLMFactory:
                             document_text,
                             user_prompt,
                             system_prompt,
+                            user_id=user_id,
                         )
                     except Exception as e3:
                         logger.error(f"Final retry also failed: {e3}")
