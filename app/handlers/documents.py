@@ -1,12 +1,12 @@
 """Документ хандлеры для загружения и обработки файлов.
 
-Фикс 2025-12-25 12:04:
-- ДОБАВЛЕНЫ state filters: документы ТОЛЬКО в DocumentAnalysisStates
-- ТЕПЕРЬ документы из HomeworkStates/ConversationStates НЕ попадут сюда
-- Полная архитектурная изоляция режимов
+Фикс 2025-12-25 12:05:
+- ЯВНЫЕ state filters: остановки НЕ HomeworkStates/ConversationStates/PromptStates
+- StateFilter(state, "не в HomeworkStates") - точная проверка
+- documents.py БОЛЬШЕ НИКОГДА не перехватывает homework/conversation
 
 Фикс 2025-12-25 11:27:
-- АРХИТЕКТУРНАЯ ПЕРЕдЕЛКА: Explicit state filters вместо guard'ов
+- АРХИТЕКТУРНАЯ ПЕРЕДЕЛКА: Explicit state filters вместо guard'ов
 - НИКАКОГО конфликта между режимами - каждый handler явно указывает свой state
 - documents.py БОЛЬШЕ НЕ обрабатывает документы из других режимов
 - Обработчик срабатывает ТОЛЬКО когда пользователь в его режиме
@@ -36,6 +36,8 @@ from pathlib import Path
 from aiogram import Router, F
 from aiogram.types import Message, Document, File
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State
+from aiogram.filters import StateFilter
 from aiogram.enums import ContentType
 from aiogram.exceptions import TelegramNetworkError
 
@@ -66,7 +68,7 @@ llm_factory = LLMFactory(
 
 @router.message(
     F.document,
-    ~F.fsm_context  # Accept when NO state (general chat mode) - will be set by handler
+    ~StateFilter(HomeworkStates, ConversationStates, PromptStates),
 )
 async def handle_document(
     message: Message,
@@ -77,8 +79,8 @@ async def handle_document(
     АРХИТЕКТУРНО:
     Этот обработчик срабатывает ТОЛЬКО когда:
     1. Пользователь НЕ в HomeworkStates/ConversationStates/PromptStates
-    2. Документ загружен в общем чате (state = None или ChatStates.chatting)
-    3. Фильтр ~F.fsm_context фильтрует недопустимые состояния
+    2. StateFilter(~HomeworkStates, ...) гарантирует это
+    3. Документ обрабатывается в ОБЩЕМ чате
     
     Args:
         message: User message with document
@@ -314,7 +316,7 @@ async def handle_document(
 
 @router.message(
     F.photo,
-    ~F.fsm_context  # Accept when NO state (general chat mode) - will be set by handler
+    ~StateFilter(HomeworkStates, ConversationStates, PromptStates),
 )
 async def handle_photo(
     message: Message,
@@ -324,8 +326,8 @@ async def handle_photo(
     
     АРХИТЕКТУРНО:
     Этот обработчик срабатывает ТОЛЬКО в ОБЩЕМ режиме.
-    Когда пользователь в HomeworkStates/ConversationStates/PromptStates -
-    этот обработчик ВООБЩЕ НЕ РЕГИСТРИРУЕТСЯ.
+    В HomeworkStates/ConversationStates/PromptStates - филтр
+    ~StateFilter(навсегда отключает этот обработчик.
     
     Args:
         message: User message with photo
