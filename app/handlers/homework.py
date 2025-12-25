@@ -1,14 +1,9 @@
 """Обработчик проверки домашнего задания.
 
-Фикс 2025-12-25 12:39:
-- УВЕЛИЧИЛ timeout от 30s до 60s для OCR.space
-- ДОБАВИЛ retry логику для timeout ошибок
-- ОТ ReadTimeout/ConnectTimeout пытаемся еще 1 раз
-- Логируем каждую попытку OCR
-
-Fixes 2025-12-25 12:27:
-- Логируем сырой текст после OCR
-- Логируем систем и user prompts
+UPDATED 2025-12-25 14:45:
+- УДАЛЕНЫ дубли логирования
+- Все логирование теперь в replicate_client.py
+- See replicate_client.py for [LLM TEXT], [LLM SYSTEM PROMPT], [LLM USER PROMPT]
 
 Handles /homework command for checking student homework.
 """
@@ -129,9 +124,9 @@ async def select_subject(
             f"{subject.emoji} <b>{subject.name}</b>\n\n"
             f"💬 {subject.description}\n\n"
             f"<b>📄 Отправьте:</b>\n"
-            f"• Текст с решением\n"
-            f"• Фото (текст распознается автоматически)\n"
-            f"• PDF или DOCX файл\n\n"
+            f"\u2022 Текст с решением\n"
+            f"\u2022 Фото (текст распознается автоматически)\n"
+            f"\u2022 PDF или DOCX файл\n\n"
             f"✍️ <i>Редактировать промпт для этого предмета:</i>\n"
             f"<code>/prompts</code> → Домашка → {subject.name} → Редактировать"
         ),
@@ -171,7 +166,7 @@ async def process_homework_file(
             "📄 снимаю текст...\n"
             "🤖 анализирую ответы...\n\n"
             "✍️ Подсказка: промпты для проверки можно изменить в меню:\n"
-            "`/prompts` → Домашка → [Предмет] → Редактировать"
+            "`/prompts` → Домашка → [Предмет] → Редактировать`"
         )
     )
     
@@ -183,16 +178,15 @@ async def process_homework_file(
                 text=(
                     f"❌ Не удалось получить текст\n\n"
                     f"Проверьте:\n"
-                    f"• Фото должно быть четким\n"
-                    f"• Текст должен быть читаемым\n"
-                    f"• Ор отправьте текст сообщением"
+                    f"\u2022 Фото должно быть четким\n"
+                    f"\u2022 Текст должен быть читаемым\n"
+                    f"\u2022 Ор отправьте текст сообщением"
                 )
             )
             await state.clear()
             return
         
-        logger.info(f"[HOMEWORK TEXT] User {user_id}, subject {subject_code}:")
-        logger.info(f"[HOMEWORK TEXT RAW] ({len(content)} chars):\n{content[:500]}..." if len(content) > 500 else f"[HOMEWORK TEXT RAW] ({len(content)} chars):\n{content}")
+        logger.info(f"Homework content: {len(content)} chars for user {user_id}")
         
         settings = get_settings()
         llm = ReplicateClient(
@@ -218,21 +212,21 @@ async def process_homework_file(
                 "Бь мотивирующим и поддерживающим в своем тоне."
             )
         
-        logger.info(f"[HOMEWORK SYSTEM PROMPT] User {user_id}:\n{system_prompt}")
-        user_instruction = f"Проверь это домашнее задание по предмету {subject_code}:\n\n{content}"
-        logger.info(f"[HOMEWORK USER PROMPT] User {user_id} ({len(user_instruction)} chars):\n{user_instruction[:300]}..." if len(user_instruction) > 300 else f"[HOMEWORK USER PROMPT] User {user_id}:\n{user_instruction}")
+        user_instruction = f"Проверь это домашнее задание по предмету {subject_code}\n\n{content}"
         
         result = await checker.check_homework(
             content=content,
             subject=subject_code,
-            system_prompt=system_prompt
+            system_prompt=system_prompt,
+            user_prompt=user_instruction,
+            user_id=user_id,
         )
         
         result_text = ResultVisualizer.format_result(result)
         result_text += (
             "\n\n"
             "✍️ Подсказка: текст проверки можно изменить в меню\n"
-            "`/prompts` → Домашка → [Предмет] → Редактировать"
+            "`/prompts` → Домашка → [Предмет] → Редактировать`"
         )
         
         await processing_msg.edit_text(text=result_text)
@@ -260,18 +254,11 @@ async def _extract_content(message: Message) -> str:
 
 
 async def _extract_text_from_photo(message: Message) -> str:
-    """Extract text from photo using OCR.space API.
-    
-    ОПТИМИЗАЦИОНКА 2025-12-25 12:39:
-    - timeout: 30s → 60s (OCR.space медленные)
-    - ретри 1 раз при timeout
-    - детальные логи каждой попытки
-    """
+    """Extract text from photo using OCR.space API."""
     try:
         import httpx
         
         settings = get_settings()
-        user_id = message.from_user.id
         
         photo = message.photo[-1]
         file_info = await message.bot.get_file(photo.file_id)
@@ -287,12 +274,12 @@ async def _extract_text_from_photo(message: Message) -> str:
                 photo_bytes = f.read()
             
             photo_base64 = base64.b64encode(photo_bytes).decode("utf-8")
-            logger.info(f"[OCR] User {user_id}: Photo base64 prepared ({len(photo_bytes)} bytes)")
+            logger.info(f"OCR: Photo base64 prepared ({len(photo_bytes)} bytes)")
             
-            # Пытка 1: с timeout 60s
+            # Try 2 times with 60s timeout
             for attempt in range(1, 3):
                 try:
-                    logger.info(f"[OCR] User {user_id}: Attempt {attempt}/2 (timeout 60s)")
+                    logger.info(f"OCR: Attempt {attempt}/2 (timeout 60s)")
                     
                     async with httpx.AsyncClient() as client:
                         response = await asyncio.wait_for(
@@ -308,46 +295,45 @@ async def _extract_text_from_photo(message: Message) -> str:
                                     "OCREngine": 2,
                                 },
                             ),
-                            timeout=60.0,  # УВЕЛИЧЕНО с 30 до 60
+                            timeout=60.0,
                         )
                         
                         if response.status_code != 200:
-                            logger.error(f"[OCR] User {user_id}: API error {response.status_code}")
+                            logger.error(f"OCR: API error {response.status_code}")
                             if attempt == 2:
                                 return ""
                             continue
                         
                         result = response.json()
-                        logger.info(f"[OCR] User {user_id}: API response received")
+                        logger.info(f"OCR: API response received")
                         
                         if result.get("IsErroredOnProcessing"):
                             error_msg = result.get("ErrorMessage", "Unknown")
-                            logger.error(f"[OCR] User {user_id}: Processing error: {error_msg}")
+                            logger.error(f"OCR: Processing error: {error_msg}")
                             if attempt == 2:
                                 return ""
                             continue
                         
                         parsed_results = result.get("ParsedResults", [])
                         if not parsed_results:
-                            logger.warning(f"[OCR] User {user_id}: No text detected")
+                            logger.warning(f"OCR: No text detected")
                             if attempt == 2:
                                 return ""
                             continue
                         
                         text = parsed_results[0].get("ParsedText", "")
-                        logger.info(f"[OCR SUCCESS] User {user_id} attempt {attempt}: {len(text)} chars extracted")
-                        logger.info(f"[OCR RAW TEXT] User {user_id}:\n{text}")
+                        logger.info(f"OCR: Success on attempt {attempt}: {len(text)} chars extracted")
                         return text.strip()
                 
                 except asyncio.TimeoutError:
-                    logger.warning(f"[OCR] User {user_id}: Timeout on attempt {attempt}/2, retrying...")
+                    logger.warning(f"OCR: Timeout on attempt {attempt}/2, retrying...")
                     if attempt == 2:
-                        logger.error(f"[OCR] User {user_id}: Timeout on both attempts")
+                        logger.error(f"OCR: Timeout on both attempts")
                         return ""
-                    await asyncio.sleep(1)  # Пауза перед retry
+                    await asyncio.sleep(1)
                     continue
                 except Exception as e:
-                    logger.error(f"[OCR] User {user_id}: Error on attempt {attempt}: {type(e).__name__}: {str(e)[:100]}")
+                    logger.error(f"OCR: Error on attempt {attempt}: {type(e).__name__}: {str(e)[:100]}")
                     if attempt == 2:
                         return ""
                     await asyncio.sleep(1)
@@ -358,7 +344,7 @@ async def _extract_text_from_photo(message: Message) -> str:
                 temp_file.unlink()
     
     except Exception as e:
-        logger.error(f"[OCR FATAL] User {message.from_user.id}: {type(e).__name__}: {str(e)}", exc_info=True)
+        logger.error(f"OCR: Fatal error: {type(e).__name__}: {str(e)}", exc_info=True)
         return ""
 
 
