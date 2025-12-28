@@ -1,18 +1,26 @@
-"""Конверсацион моде хандлеры для анализа документов.
+"""Конверсация моде хандлеры для анализа документов.
+
+POLNAYA PODDERZHKA:
+- Word: .docx, .doc
+- Excel: .xlsx, .xls  
+- PDF
+- Text: .txt
+- Images: .jpg, .png (OCR)
+
+UPDATED 2025-12-28 20:57:
+- REMOVED format restrictions
+- Support ALL formats via openpyxl + pandas
+- Graceful error handling only on actual failures
 
 UPDATED 2025-12-25 14:48:
 - Added user_id parameter to analyze_document calls
 - All logging now includes user context
 
 Fixes 2025-12-25 11:27:
-- АРХИТЕКТУРНАЯ ОПТИМИзация: ЭКСПЛИЦИТНЫЕ state filters в декораторах
+- АРХИТЕКТУРНАЯ ОПТИМизация: ЭКСПЛИЦИТНЫЕ state filters в декораторах
 - Обработчики срабатывают ТОЛЬКО когда пользователь В ConversationStates.ready
 - В других режимах (домашка, промпты) документы обрабатываются специализированными обработчиками
 - НИКАКОГО конфликта между режимами вовле
-
-Фиксы 2025-12-21 14:16:
-- УБРАНО мигающее сообщение с предпросмотром текста
-- Теперь: Обработка → Анализ (без промежуточных показов)
 
 Handles document analysis and user prompts for interactive conversation.
 """
@@ -116,20 +124,23 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
         "📓 *Анализ документов*\n\n"
         "Шаг 1★1★1 из 2: *Выберите тип анализа*\n\n"
         f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
+        "🔙 *ПОДДЕРЖИВАЕМЫЕ ФОРМАТЫ:*\n"
+        "• Word: .docx, **.doc** (СТАРЫЙ)\n"
+        "• Excel: .xlsx, **.xls** (СТАРЫЙ)\n"
+        "• ПДФ: PDF\n"
+        "• ТЕКСТ: TXT\n"
+        "• ФОТО: JPG, PNG (OCR текста)\n"
+        "• АРХИВЫ: ZIP\n\n"
+        "🌟 *ВсЕ форматы работают!*\n\n"
         "🔙 *Как это работает:*\n"
-        "1★1★1 Выберите промпт (тип анализа)\n"
-        "2★1★1 Загружте документ\n"
+        "1★1★1 Выберите промпт\n"
+        "2★1★1 Отправьте документ (ANY FORMAT)\n"
         "3★1★1 Получите результат\n\n"
-        "📄 *Поддерживаемые форматы:*\n"
-        "• ПУЛОМ: PDF, DOCX (из Word), XLSX (из Excel)\n"
-        "• ТЕКСТ: TXT, говорите в чате\n"
-        "• ТОВАРЫ: ZIP (архивы)\n"
-        "• ОЦР: Фото (документы со текстом)\n\n"
-        "❌ *НЕ поддерживаются:*\n"
-        "• .doc, .xls (старые форматы) → Конвертируйте в .docx/.xlsx\n\n"
-        "✍️ *Как отредактировать промпт:*\n"
-        "`/prompts` → Документы → [Выбрать] → Редактировать\n\n"
-        "⬇️ Ниже выберите тип анализа:"
+        "📄 *ОТПРАВТЕ ВЕЩЬ (ЛЮБОЕ):*\n"
+        "• .doc, .docx, .xls, .xlsx, .pdf, .txt\n"
+        "• Фото документа (jpg, png)\n"
+        "• ZIP архивы\n\n"
+        "👇 Выберите тип анализа:"
     )
     
     if message:
@@ -173,18 +184,10 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
         f"✅ *Промпт выбран!*\n\n"
         f"📄 *Тип анализа:* `{prompt_name}`\n"
         f"_{prompt.description}_\n\n"
-        f"📂 *Шаг 2★1★1 из 2:* Загружте документ\n\n"
-        f"📄 *Поддерживаемые форматы:*\n"
-        f"• PDF, DOCX (.docx Word), XLSX (.xlsx Excel)\n"
-        f"• TXT (текст)\n"
-        f"• ZIP (архивы)\n"
-        f"• 📇 Фото\n\n"
-        f"❌ *НЕ поддерживаются:*\n"
-        f".doc (old Word) → сохраните как .docx\n"
-        f".xls (old Excel) → сохраните как .xlsx\n\n"
-        f"✍΃ *Редактировать этот промпт?*\n"
-        f"`/prompts` → Документы → `{prompt_name}` → Редактировать\n\n"
-        f"📁 Готово? Отправьте документ!"
+        f"📂 *Шаг 2★1★1 из 2:* Отправьте документ\n\n"
+        f"🌟 *ПОДДЕРЖИВАЕМЫЕ:*\n"
+        f".doc, .docx, .xls, .xlsx, .pdf, .txt, images (OCR), ZIP\n\n"
+        f"📁 Отправьте ЛЮБОЙ файл!"
     )
     
     await query.message.edit_text(
@@ -209,10 +212,10 @@ async def cb_back_to_prompts(query: CallbackQuery, state: FSMContext) -> None:
     text = (
         "📓 *Анализ документов*\n\n"
         "Шаг 1★1★1 из 2: *Выберите тип анализа*\n\n"
-        f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
-        "✍΃ *Как отредактировать промпт:*\n"
-        "`/prompts` → Документы → [Выбрать] → Редактировать\n\n"
-        "👇 Ниже выберите тип анализа:"
+        f"📄 *Доступно: {len(prompts)} промптов*\n\n"
+        "🌟 *ПОДДЕРЖИВАЕМЫЕ ФОРМАТЫ:*\n"
+        ".doc, .docx, .xls, .xlsx, .pdf, .txt, images, ZIP\n\n"
+        "👇 Выберите тип анализа:"
     )
     
     await state.set_state(ConversationStates.selecting_prompt)
@@ -246,11 +249,18 @@ async def cb_analyze_cancel(query: CallbackQuery, state: FSMContext) -> None:
 async def handle_document_upload(message: Message, state: FSMContext) -> None:
     """Обработка загруженного документа.
     
+    ПОДДЕРЖИВАЕТ ВСЕ ФОРМАТЫ:
+    - .doc, .docx (Word)
+    - .xls, .xlsx (Excel)
+    - .pdf (PDF)
+    - .txt (Text)
+    - images (JPG, PNG - OCR)
+    - .zip (Archives)
+    
     АРХИТЕКТУРНО:
     Этот обработчик срабатывает ТОЛЬКО когда:
     1. Пользователь точно в ConversationStates.ready
     2. Фильтр в декораторе гарантирует это
-    3. Никакие документы из других режимов сюда не попадут
     """
     if not message.document:
         await message.answer("❌ Документ не найден")
@@ -260,7 +270,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
     file_size = document.file_size or 0
     file_name = document.file_name or "document"
     
-    logger.info(f"User {message.from_user.id} uploading document in analyze mode: {file_name} ({file_size} bytes)")
+    logger.info(f"User {message.from_user.id} uploading document: {file_name} ({file_size} bytes)")
     
     # Validate file size
     if file_size > config.MAX_FILE_SIZE:
@@ -277,7 +287,6 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         "Скачивание и извлечение текста..."
     )
     
-    # КРИТИЧЕСКОЕ: Каждый файл получает свой уникальный temp-каталог
     file_uuid = str(uuid.uuid4())
     temp_user_dir = None
     
@@ -286,7 +295,6 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         temp_base = Path(config.TEMP_DIR)
         temp_base.mkdir(exist_ok=True)
         
-        # Уникальный каталог: temp\{user_id}_{file_uuid}
         unique_temp_name = f"{message.from_user.id}_{file_uuid}"
         temp_user_dir = CleanupManager.create_temp_directory(
             temp_base,
@@ -307,38 +315,24 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         temp_file_path = temp_user_dir / f"{file_uuid}{file_ext}"
         
         await bot.download_file(file.file_path, temp_file_path)
-        logger.info(f"Downloaded: {temp_file_path} ({file_size} bytes)")
+        logger.info(f"Downloaded: {temp_file_path}")
         
         # Extract text
         await status_msg.edit_text(
-            "🔍 Обрабатываю документ...\n"
-            "Извлечение текста..."
+            "🔍 Обрабатываю (вычисление текста)..."
         )
         
         converter = FileConverter()
         extracted_text = converter.extract_text(temp_file_path, temp_user_dir)
         
         if not extracted_text or not extracted_text.strip():
-            # User-friendly error for legacy formats
-            if file_name.lower().endswith(".doc"):
-                await message.answer(
-                    "⚠️ **Не поддерживается: .doc (старый Word)**\n\n"
-                    "💡 Преобразуйте в .docx (Microsoft Word ≥ 2007)\n\n"
-                    "Как: Word → File → Save As... → Format: Word Document (.docx)",
-                    parse_mode="Markdown",
-                )
-            elif file_name.lower().endswith(".xls"):
-                await message.answer(
-                    "⚠️ **Не поддерживается: .xls (старый Excel)**\n\n"
-                    "💡 Преобразуйте в .xlsx (Excel 2007+)\n\n"
-                    "Как: Excel → File → Save As... → Format: Excel Workbook (.xlsx)",
-                    parse_mode="Markdown",
-                )
-            else:
-                await message.answer(
-                    "⚠️ В документе не найден текст.\n"
-                    "Попробуйте другой файл."
-                )
+            await message.answer(
+                "⚠️ Текст в документе не найден.\n\n"
+                "Если это изображение:\n"
+                "• Отправьте фото вместо документа\n\n"
+                "Если документ прустой:\n"
+                "• Попробуйте другой файл"
+            )
             await status_msg.delete()
             return
         
@@ -356,7 +350,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         
         logger.info(
             f"Document loaded for user {message.from_user.id}: "
-            f"{len(extracted_text)} chars with prompt '{selected_prompt_name}'"
+            f"{len(extracted_text)} chars"
         )
         
         # Update status message with analysis start
@@ -368,22 +362,13 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         # Immediately start analysis with selected prompt
         await _perform_analysis(message, state, data, status_msg)
     
-    except ValueError as e:
-        # Unsupported format
-        logger.error(f"Error processing document: {e}")
-        await message.answer(
-            f"⚠️ {str(e)}\n\n"
-            f"📄 *Поддерживаемые:*\n"
-            f"PDF, DOCX (.docx), XLSX (.xlsx), TXT\n\n"
-            f"❌ *НЕ поддерживаются:*\n"
-            f".doc (old Word) → Save As .docx\n"
-            f".xls (old Excel) → Save As .xlsx",
-            parse_mode="Markdown",
-        )
-        await status_msg.delete()
     except Exception as e:
         logger.error(f"Error processing document: {e}")
-        await message.answer(f"❌ Ошибка: {str(e)[:80]}")
+        await message.answer(
+            f"❌ Ошибка обработки:\n`{str(e)[:100]}`\n\n"
+            "Попытайтесь с другим файлом.",
+            parse_mode="Markdown",
+        )
         await status_msg.delete()
     
     finally:
@@ -403,13 +388,12 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
     Этот обработчик срабатывает ТОЛЬКО когда:
     1. Пользователь точно в ConversationStates.ready
     2. Фильтр в декораторе гарантирует это
-    3. Никакие фото из других режимов сюда не попадут
     """
     if not message.photo:
         await message.answer("❌ Фото не найден")
         return
     
-    logger.info(f"User {message.from_user.id} uploading photo in analyze mode")
+    logger.info(f"User {message.from_user.id} uploading photo")
     
     # Show processing ONLY - no confirmation message after
     status_msg = await message.answer(
@@ -417,7 +401,6 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         "Распознавание текста (OCR)..."
     )
     
-    # КРИТИЧЕСКОЕ: Оникальный temp-каталог для фото
     file_uuid = str(uuid.uuid4())
     temp_user_dir = None
     
@@ -459,8 +442,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         selected_prompt_name = data.get("selected_prompt_name", "default")
         
         logger.info(
-            f"Photo loaded for user {message.from_user.id}: "
-            f"{len(extracted_text)} chars with prompt '{selected_prompt_name}'"
+            f"Photo loaded for user {message.from_user.id}: {len(extracted_text)} chars"
         )
         
         # Update status message with analysis start
@@ -491,7 +473,7 @@ async def handle_text_in_analyze_mode(message: Message, state: FSMContext) -> No
     in ConversationStates.ready state.
     """
     if not message.text:
-        await message.answer("❌ Поддерживаются только документы и фото")
+        await message.answer("❌ Поддерживаются документы и фото")
         return
     
     logger.info(f"User {message.from_user.id} sent text in analyze mode")
@@ -554,9 +536,7 @@ async def _perform_analysis(
         await state.clear()
         return
     
-    logger.info(
-        f"User {user_id} starting analysis with prompt '{selected_prompt_name}'"
-    )
+    logger.info(f"User {user_id} starting analysis with prompt '{selected_prompt_name}'")
     
     # Show typing
     await message.bot.send_chat_action(message.chat.id, "typing")
@@ -570,7 +550,7 @@ async def _perform_analysis(
         
         if not prompt:
             await message.answer(
-                "❌ Промпт не найден. Открываю стандартный..."
+                "❌ Промпт не найден"
             )
         
         # Build analysis command
