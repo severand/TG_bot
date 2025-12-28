@@ -640,38 +640,38 @@ async def _extract_text_from_photo_for_analysis(
         import base64
         import asyncio
         
-        logger.info(f"OCR: Starting extraction for user {message.from_user.id}")
+        logger.info(f"[OCR] Starting extraction for user {message.from_user.id}")
         
         # Get largest photo
         if not message.photo:
-            logger.warning("OCR: No photo found in message")
+            logger.warning("[OCR] No photo found in message")
             return ""
         
         photo = message.photo[-1]
-        logger.info(f"OCR: Got photo {photo.file_id}, size: {photo.file_size} bytes")
+        logger.info(f"[OCR] Got photo {photo.file_id}, size: {photo.file_size} bytes")
         
         # Get file info
         file_info = await message.bot.get_file(photo.file_id)
-        logger.info(f"OCR: File path: {file_info.file_path}")
+        logger.info(f"[OCR] File path: {file_info.file_path}")
         
         # Download photo
         temp_file = temp_dir / f"photo_{photo.file_unique_id}.jpg"
-        logger.info(f"OCR: Downloading to {temp_file}")
+        logger.info(f"[OCR] Downloading to {temp_file}")
         await message.bot.download_file(file_info.file_path, temp_file)
-        logger.info(f"OCR: Downloaded successfully, size: {temp_file.stat().st_size} bytes")
+        logger.info(f"[OCR] Downloaded successfully, size: {temp_file.stat().st_size} bytes")
         
         # Read photo as base64
         with open(temp_file, "rb") as f:
             photo_bytes = f.read()
-        logger.info(f"OCR: Read {len(photo_bytes)} bytes from file")
+        logger.info(f"[OCR] Read {len(photo_bytes)} bytes from file")
         
         photo_base64 = base64.b64encode(photo_bytes).decode("utf-8")
-        logger.info(f"OCR: Encoded to base64, size: {len(photo_base64)} chars")
+        logger.info(f"[OCR] Encoded to base64, size: {len(photo_base64)} chars")
         
         # Prepare API payload
         api_key = config.OCR_SPACE_API_KEY
         if not api_key:
-            logger.error("OCR: OCR_SPACE_API_KEY not configured")
+            logger.error("[OCR] OCR_SPACE_API_KEY not configured")
             return ""
         
         payload = {
@@ -683,57 +683,91 @@ async def _extract_text_from_photo_for_analysis(
             "scale": True,
             "OCREngine": 2,
         }
-        logger.info(f"OCR: Prepared payload, base64 size: {len(payload['base64Image'])} chars")
+        logger.info(f"[OCR] Prepared payload, base64 size: {len(payload['base64Image'])} chars")
         
-        # Call OCR.space API with proper timeouts
-        logger.info("OCR: Calling OCR.space API...")
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.ocr.space/parse/image",
-                data=payload,
-                timeout=httpx.Timeout(60.0, connect=30.0),
-            )
-            
-            logger.info(f"OCR: Got response status {response.status_code}")
-            
-            if response.status_code != 200:
-                logger.error(f"OCR: API error {response.status_code}: {response.text[:200]}")
-                return ""
-            
-            # Parse response
+        # Call OCR.space API with proper timeouts and SSL verification disabled
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
             try:
-                result = response.json()
+                logger.info(f"[OCR] Calling OCR.space API (attempt {attempt}/{max_retries})...")
+                async with httpx.AsyncClient(verify=False) as client:
+                    response = await client.post(
+                        "https://api.ocr.space/parse/image",
+                        data=payload,
+                        timeout=httpx.Timeout(60.0, connect=30.0),
+                    )
+                    
+                    logger.info(f"[OCR] Got response status {response.status_code}")
+                    
+                    if response.status_code != 200:
+                        logger.error(f"[OCR] API error {response.status_code}: {response.text[:200]}")
+                        if attempt < max_retries:
+                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                            continue
+                        return ""
+                    
+                    # Parse response
+                    try:
+                        result = response.json()
+                    except Exception as e:
+                        logger.error(f"[OCR] Failed to parse JSON response: {e}")
+                        logger.error(f"[OCR] Response text: {response.text[:500]}")
+                        if attempt < max_retries:
+                            await asyncio.sleep(2 ** attempt)
+                            continue
+                        return ""
+                    
+                    logger.info(f"[OCR] Response keys: {result.keys()}")
+                    
+                    # Check for processing errors
+                    if result.get("IsErroredOnProcessing"):
+                        error_msg = result.get("ErrorMessage", "Unknown error")
+                        logger.error(f"[OCR] Processing error: {error_msg}")
+                        if attempt < max_retries:
+                            await asyncio.sleep(2 ** attempt)
+                            continue
+                        return ""
+                    
+                    # Extract text from parsed results
+                    parsed_results = result.get("ParsedResults", [])
+                    if not parsed_results:
+                        logger.warning("[OCR] No parsed results in response")
+                        logger.info(f"[OCR] Full response: {result}")
+                        if attempt < max_retries:
+                            await asyncio.sleep(2 ** attempt)
+                            continue
+                        return ""
+                    
+                    text = parsed_results[0].get("ParsedText", "")
+                    logger.info(f"[OCR] Successfully extracted {len(text)} chars from photo")
+                    return text.strip()
+            
+            except httpx.ConnectError as e:
+                logger.warning(f"[OCR] Connection error (attempt {attempt}/{max_retries}): {type(e).__name__}")
+                if attempt < max_retries:
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff: 2s, 4s, 8s
+                    continue
+                logger.error(f"[OCR] Failed after {max_retries} attempts")
+                return ""
+            except asyncio.TimeoutError:
+                logger.warning(f"[OCR] Timeout (attempt {attempt}/{max_retries})")
+                if attempt < max_retries:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                return ""
             except Exception as e:
-                logger.error(f"OCR: Failed to parse JSON response: {e}")
-                logger.error(f"OCR: Response text: {response.text[:500]}")
+                logger.error(f"[OCR] Unexpected error (attempt {attempt}/{max_retries}): {type(e).__name__}: {e}")
+                if attempt < max_retries:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                import traceback
+                logger.error(f"[OCR] Traceback:\n{traceback.format_exc()}")
                 return ""
-            
-            logger.info(f"OCR: Response keys: {result.keys()}")
-            
-            # Check for processing errors
-            if result.get("IsErroredOnProcessing"):
-                error_msg = result.get("ErrorMessage", "Unknown error")
-                logger.error(f"OCR: Processing error: {error_msg}")
-                return ""
-            
-            # Extract text from parsed results
-            parsed_results = result.get("ParsedResults", [])
-            if not parsed_results:
-                logger.warning("OCR: No parsed results in response")
-                logger.info(f"OCR: Full response: {result}")
-                return ""
-            
-            text = parsed_results[0].get("ParsedText", "")
-            logger.info(f"OCR: Successfully extracted {len(text)} chars from photo")
-            return text.strip()
     
-    except asyncio.TimeoutError:
-        logger.error("OCR: Request timeout (60s exceeded)")
-        return ""
     except Exception as e:
-        logger.error(f"OCR: Exception during extraction: {type(e).__name__}: {e}")
+        logger.error(f"[OCR] Top-level exception: {type(e).__name__}: {e}")
         import traceback
-        logger.error(f"OCR: Traceback:\n{traceback.format_exc()}")
+        logger.error(f"[OCR] Traceback:\n{traceback.format_exc()}")
         return ""
 
 
