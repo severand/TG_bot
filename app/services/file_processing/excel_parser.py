@@ -1,159 +1,143 @@
-"""Excel file parser for .xlsx and .xls formats.
+"""Excel файлов (.xlsx и .xls) парсер.
 
-Extracts text from Excel spreadsheets using openpyxl (.xlsx) and xlrd (.xls).
-Handles multiple sheets and cell values.
+PODDERZHIVAYET:
+- .xlsx (Excel 2007+) - openpyxl
+- .xls (Excel 97-2003) - pandas (NO xlrd)
 
-Fixes 2025-12-20 23:27:
-- Добавлена поддержка старых .xls файлов через xlrd
-- Автоматическое определение формата по расширению
-- Graceful fallback если библиотека отсутствует
+EXTRACT:
+- All sheets to plain text
+- Table structure preserved
+- Empty cells handled
 """
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class ExcelParser:
-    """Parser for extracting text from Excel files.
-    
-    Supports: .xlsx (openpyxl), .xls (xlrd)
-    Extracts text from all sheets and cells.
-    """
-    
+    """Parse Excel files (.xlsx and .xls)."""
+
     def extract_text(self, file_path: Path) -> str:
-        """Extract text from Excel file.
-        
-        Reads all sheets and combines text from cells.
-        Skips empty cells and organizes by sheet.
+        """Парсить Excel файл.
         
         Args:
-            file_path: Path to Excel file
+            file_path: Path to Excel file (.xlsx or .xls)
             
         Returns:
-            str: Extracted text from all sheets
+            Extracted text from all sheets
             
         Raises:
-            ImportError: If required library is not installed
-            Exception: If file cannot be parsed
+            ValueError: If file format is unsupported or corrupted
         """
-        file_ext = file_path.suffix.lower()
+        file_name = file_path.name.lower()
         
-        if file_ext == '.xlsx':
-            return self._extract_xlsx(file_path)
-        elif file_ext == '.xls':
-            return self._extract_xls(file_path)
+        # Determine format from extension
+        if file_name.endswith('.xlsx'):
+            logger.info(f"Parsing .xlsx file: {file_path.name}")
+            return self._parse_xlsx(file_path)
+        
+        elif file_name.endswith('.xls'):
+            logger.info(f"Parsing .xls file: {file_path.name}")
+            return self._parse_xls(file_path)
+        
         else:
-            raise ValueError(f"Unsupported Excel format: {file_ext}")
-    
-    def _extract_xlsx(self, file_path: Path) -> str:
-        """Extract text from .xlsx file using openpyxl.
-        
-        Args:
-            file_path: Path to .xlsx file
-            
-        Returns:
-            str: Extracted text
-        """
+            raise ValueError(f"Unsupported Excel format: {file_name}")
+
+    def _parse_xlsx(self, file_path: Path) -> str:
+        """Парсить .xlsx файл используя openpyxl."""
         try:
             from openpyxl import load_workbook
-        except ImportError:
-            logger.error("openpyxl not installed. Install with: pip install openpyxl")
-            raise ImportError("openpyxl is required for .xlsx file support")
-        
-        try:
-            logger.info(f"Extracting text from Excel (.xlsx): {file_path.name}")
             
-            # Load workbook
             workbook = load_workbook(file_path, data_only=True)
-            all_text: list[str] = []
+            logger.info(f"XLSX: Loaded workbook with {len(workbook.sheetnames)} sheets")
             
-            # Process each sheet
+            all_text = []
+            
             for sheet_name in workbook.sheetnames:
+                logger.info(f"XLSX: Processing sheet '{sheet_name}'")
                 sheet = workbook[sheet_name]
-                logger.info(f"Processing sheet: {sheet_name}")
                 
-                sheet_text: list[str] = []
-                sheet_text.append(f"=== Sheet: {sheet_name} ===")
+                # Add sheet name
+                all_text.append(f"\n=== {sheet_name} ===")
                 
-                # Extract text from cells
+                # Extract rows as tab-separated values
                 for row in sheet.iter_rows(values_only=True):
-                    row_values = []
-                    for cell_value in row:
-                        if cell_value is not None:
-                            row_values.append(str(cell_value).strip())
+                    # Skip completely empty rows
+                    if not any(cell is not None for cell in row):
+                        continue
                     
-                    if row_values:  # Skip empty rows
-                        sheet_text.append(" | ".join(row_values))
-                
-                if len(sheet_text) > 1:  # Only add if sheet has content
-                    all_text.append("\n".join(sheet_text))
+                    # Convert cells to strings, handle None
+                    cells = [str(cell) if cell is not None else "" for cell in row]
+                    line = "\t".join(cells)
+                    all_text.append(line)
             
             workbook.close()
-            
-            result = "\n\n".join(all_text)
-            logger.info(f"Successfully extracted {len(result)} chars from .xlsx")
-            return result
+            text = "\n".join(all_text).strip()
+            logger.info(f"XLSX: Extracted {len(text)} characters")
+            return text
+        
+        except ImportError:
+            logger.error("openpyxl not installed")
+            raise ValueError("openpyxl library required for .xlsx files")
         
         except Exception as e:
-            logger.error(f"Error parsing .xlsx file {file_path.name}: {e}")
-            raise
-    
-    def _extract_xls(self, file_path: Path) -> str:
-        """Extract text from old .xls file using xlrd.
-        
-        Args:
-            file_path: Path to .xls file
-            
-        Returns:
-            str: Extracted text
-        """
+            logger.error(f"XLSX parse error: {e}")
+            raise ValueError(f"Failed to parse .xlsx file: {str(e)}")
+
+    def _parse_xls(self, file_path: Path) -> str:
+        """Парсить .xls файл используя pandas (WITHOUT xlrd)."""
         try:
-            import xlrd
+            import pandas as pd
+            
+            # Read all sheets
+            excel_file = pd.ExcelFile(file_path)
+            logger.info(f"XLS: Loaded workbook with {len(excel_file.sheet_names)} sheets")
+            
+            all_text = []
+            
+            for sheet_name in excel_file.sheet_names:
+                logger.info(f"XLS: Processing sheet '{sheet_name}'")
+                
+                try:
+                    # Read sheet - pandas handles both .xls and .xlsx
+                    df = pd.read_excel(file_path, sheet_name=sheet_name, dtype=str)
+                    
+                    # Skip completely empty sheets
+                    if df.empty:
+                        logger.info(f"XLS: Sheet '{sheet_name}' is empty, skipping")
+                        continue
+                    
+                    # Add sheet name
+                    all_text.append(f"\n=== {sheet_name} ===")
+                    
+                    # Add headers
+                    headers = df.columns.tolist()
+                    all_text.append("\t".join(str(h) for h in headers))
+                    
+                    # Add rows
+                    for _, row in df.iterrows():
+                        # Handle NaN values
+                        cells = [str(val) if pd.notna(val) else "" for val in row]
+                        line = "\t".join(cells)
+                        all_text.append(line)
+                
+                except Exception as sheet_error:
+                    logger.warning(f"XLS: Error reading sheet '{sheet_name}': {sheet_error}")
+                    continue
+            
+            text = "\n".join(all_text).strip()
+            logger.info(f"XLS: Extracted {len(text)} characters")
+            return text
+        
         except ImportError:
-            logger.error("xlrd not installed. Install with: pip install xlrd")
-            raise ImportError(
-                "xlrd is required for old .xls file support. "
-                "Install with: pip install xlrd"
+            logger.error("pandas not installed for .xls support")
+            raise ValueError(
+                "pandas library required for .xls files. "
+                "Install with: pip install pandas"
             )
         
-        try:
-            logger.info(f"Extracting text from Excel (.xls): {file_path.name}")
-            
-            # Open workbook
-            workbook = xlrd.open_workbook(file_path)
-            all_text: list[str] = []
-            
-            # Process each sheet
-            for sheet_idx in range(workbook.nsheets):
-                sheet = workbook.sheet_by_index(sheet_idx)
-                sheet_name = sheet.name
-                logger.info(f"Processing sheet: {sheet_name}")
-                
-                sheet_text: list[str] = []
-                sheet_text.append(f"=== Sheet: {sheet_name} ===")
-                
-                # Extract text from cells
-                for row_idx in range(sheet.nrows):
-                    row_values = []
-                    for col_idx in range(sheet.ncols):
-                        cell_value = sheet.cell_value(row_idx, col_idx)
-                        # Skip empty cells
-                        if cell_value is not None and str(cell_value).strip():
-                            row_values.append(str(cell_value).strip())
-                    
-                    if row_values:  # Skip empty rows
-                        sheet_text.append(" | ".join(row_values))
-                
-                if len(sheet_text) > 1:  # Only add if sheet has content
-                    all_text.append("\n".join(sheet_text))
-            
-            result = "\n\n".join(all_text)
-            logger.info(f"Successfully extracted {len(result)} chars from .xls")
-            return result
-        
         except Exception as e:
-            logger.error(f"Error parsing .xls file {file_path.name}: {e}")
-            raise
+            logger.error(f"XLS parse error: {e}")
+            raise ValueError(f"Failed to parse .xls file: {str(e)}")
