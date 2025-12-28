@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     TG_BOT_TOKEN: str
     OPENAI_API_KEY: str = ""
     REPLICATE_API_TOKEN: str = ""
-    LLM_PROVIDER: str = "openai"  # Primary provider (openai or replicate)
+    LLM_PROVIDER: str = "replicate"  # Primary provider (replicate or openai)
     LOG_LEVEL: str = "INFO"
     MAX_FILE_SIZE: int = 20 * 1024 * 1024  # 20MB
     MAX_ARCHIVE_SIZE: int = 100 * 1024 * 1024  # 100MB
