@@ -120,7 +120,14 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
         "1★1★1 Выберите промпт (тип анализа)\n"
         "2★1★1 Загружте документ\n"
         "3★1★1 Получите результат\n\n"
-        "✍΃ *Как отредактировать промпт:*\n"
+        "📄 *Поддерживаемые форматы:*\n"
+        "• ПУЛОМ: PDF, DOCX (из Word), XLSX (из Excel)\n"
+        "• ТЕКСТ: TXT, говорите в чате\n"
+        "• ТОВАРЫ: ZIP (архивы)\n"
+        "• ОЦР: Фото (документы со текстом)\n\n"
+        "❌ *НЕ поддерживаются:*\n"
+        "• .doc, .xls (старые форматы) → Конвертируйте в .docx/.xlsx\n\n"
+        "✍️ *Как отредактировать промпт:*\n"
         "`/prompts` → Документы → [Выбрать] → Редактировать\n\n"
         "⬇️ Ниже выберите тип анализа:"
     )
@@ -168,10 +175,13 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
         f"_{prompt.description}_\n\n"
         f"📂 *Шаг 2★1★1 из 2:* Загружте документ\n\n"
         f"📄 *Поддерживаемые форматы:*\n"
-        f"• PDF, DOCX, TXT\n"
-        f"• Excel (.xlsx, .xls)\n"
-        f"• ZIP, DOC\n"
+        f"• PDF, DOCX (.docx Word), XLSX (.xlsx Excel)\n"
+        f"• TXT (текст)\n"
+        f"• ZIP (архивы)\n"
         f"• 📇 Фото\n\n"
+        f"❌ *НЕ поддерживаются:*\n"
+        f".doc (old Word) → сохраните как .docx\n"
+        f".xls (old Excel) → сохраните как .xlsx\n\n"
         f"✍΃ *Редактировать этот промпт?*\n"
         f"`/prompts` → Документы → `{prompt_name}` → Редактировать\n\n"
         f"📁 Готово? Отправьте документ!"
@@ -248,8 +258,9 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
     
     document: Document = message.document
     file_size = document.file_size or 0
+    file_name = document.file_name or "document"
     
-    logger.info(f"User {message.from_user.id} uploading document in analyze mode: {document.file_name} ({file_size} bytes)")
+    logger.info(f"User {message.from_user.id} uploading document in analyze mode: {file_name} ({file_size} bytes)")
     
     # Validate file size
     if file_size > config.MAX_FILE_SIZE:
@@ -292,7 +303,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             return
         
         # Generate unique filename
-        file_ext = Path(document.file_name or "document").suffix or ".bin"
+        file_ext = Path(file_name).suffix or ".bin"
         temp_file_path = temp_user_dir / f"{file_uuid}{file_ext}"
         
         await bot.download_file(file.file_path, temp_file_path)
@@ -308,17 +319,33 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         extracted_text = converter.extract_text(temp_file_path, temp_user_dir)
         
         if not extracted_text or not extracted_text.strip():
-            await message.answer(
-                "⚠️ В документе не найден текст.\n"
-                "Попробуйте другой файл."
-            )
+            # User-friendly error for legacy formats
+            if file_name.lower().endswith(".doc"):
+                await message.answer(
+                    "⚠️ **Не поддерживается: .doc (старый Word)**\n\n"
+                    "💡 Преобразуйте в .docx (Microsoft Word ≥ 2007)\n\n"
+                    "Как: Word → File → Save As... → Format: Word Document (.docx)",
+                    parse_mode="Markdown",
+                )
+            elif file_name.lower().endswith(".xls"):
+                await message.answer(
+                    "⚠️ **Не поддерживается: .xls (старый Excel)**\n\n"
+                    "💡 Преобразуйте в .xlsx (Excel 2007+)\n\n"
+                    "Как: Excel → File → Save As... → Format: Excel Workbook (.xlsx)",
+                    parse_mode="Markdown",
+                )
+            else:
+                await message.answer(
+                    "⚠️ В документе не найден текст.\n"
+                    "Попробуйте другой файл."
+                )
             await status_msg.delete()
             return
         
-        # Save to state - оригинальное име документа
+        # Save to state
         await state.update_data(
             document_text=extracted_text,
-            document_name=document.file_name or "document",
+            document_name=file_name,
             document_size=len(extracted_text),
             user_id=message.from_user.id,
         )
@@ -327,13 +354,12 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         selected_prompt_name = data.get("selected_prompt_name", "default")
         
-        # Log BEFORE analysis starts
         logger.info(
             f"Document loaded for user {message.from_user.id}: "
             f"{len(extracted_text)} chars with prompt '{selected_prompt_name}'"
         )
         
-        # Update status message with analysis start (NO PREVIEW MESSAGE)
+        # Update status message with analysis start
         await status_msg.edit_text(
             f"⏳ Анализирую с промптом '{selected_prompt_name}'...\n"
             "Это может занять некоторое время..."
@@ -347,12 +373,11 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         logger.error(f"Error processing document: {e}")
         await message.answer(
             f"⚠️ {str(e)}\n\n"
-            f"📄 *Поддерживаемые форматы:*\n"
-            f"• PDF, DOCX, TXT\n"
-            f"• Excel (.xlsx, .xls)\n"
-            f"• ZIP\n\n"
-            f"❌ *НЕ поддерживается:* .doc (старый Word)\n"
-            f"Конвертируйте в .docx или PDF.",
+            f"📄 *Поддерживаемые:*\n"
+            f"PDF, DOCX (.docx), XLSX (.xlsx), TXT\n\n"
+            f"❌ *НЕ поддерживаются:*\n"
+            f".doc (old Word) → Save As .docx\n"
+            f".xls (old Excel) → Save As .xlsx",
             parse_mode="Markdown",
         )
         await status_msg.delete()
@@ -421,7 +446,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
             await status_msg.delete()
             return
         
-        # Save to state - оригинальное име документа
+        # Save to state
         await state.update_data(
             document_text=extracted_text,
             document_name="photo_document",
@@ -433,13 +458,12 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         selected_prompt_name = data.get("selected_prompt_name", "default")
         
-        # Log BEFORE analysis starts
         logger.info(
             f"Photo loaded for user {message.from_user.id}: "
             f"{len(extracted_text)} chars with prompt '{selected_prompt_name}'"
         )
         
-        # Update status message with analysis start - NO "photo ready" message
+        # Update status message with analysis start
         await status_msg.edit_text(
             f"⏳ Анализирую с промптом '{selected_prompt_name}'...\n"
             "Это может занять некоторое время..."
@@ -582,7 +606,7 @@ async def _perform_analysis(
                 parse_mode="Markdown",
             )
         else:
-            # Несколько сообщений - заголовок только в первом
+            # Несколько сообщений - заголовком только в первом
             for i, chunk in enumerate(chunks, 1):
                 if i == 1:
                     # Первое сообщение с заголовком и номером
