@@ -94,18 +94,32 @@ def _load_rels(zf: zipfile.ZipFile, rels_path: str):
 
 
 def _read_workbook_sheets(zf: zipfile.ZipFile):
-    """Get list of sheets from workbook.xml."""
+    """Get list of sheets from workbook.xml.
+    
+    Resolves sheet paths from workbook relationships and returns
+    list of (sheet_name, sheet_path) tuples.
+    """
     with zf.open("xl/workbook.xml") as f:
         wb = ET.parse(f).getroot()
     rels = _load_rels(zf, "xl/_rels/workbook.xml.rels")
     sheets = []
+    
     for sheet in wb.findall("main:sheets/main:sheet", _NS):
         name = sheet.get("name")
         rid = sheet.get(f"{{{_XL_NS_REL}}}id")
         target = rels.get(rid)
-        if target and not target.startswith("xl/"):
+        
+        if not target:
+            logger.warning(f"Sheet '{name}' has no relationship entry, skipping")
+            continue
+        
+        # Ensure path starts with xl/ (Office Open XML standard)
+        if not target.startswith("xl/"):
             target = "xl/" + target
+        
+        logger.debug(f"Resolved sheet '{name}' -> {target}")
         sheets.append((name, target))
+    
     return sheets
 
 
@@ -190,12 +204,10 @@ def read_xlsx(path: str):
             logger.debug(f"Found {len(sheets)} sheets in workbook")
             out = {}
             for name, spath in sheets:
-                if not spath:
-                    logger.warning(f"Sheet '{name}' has no valid path, skipping")
-                    continue
                 logger.debug(f"  Reading sheet: {name} from {spath}")
                 out[name] = _read_sheet(zf, spath, shared)
-                logger.info(f"  Sheet '{name}': {len(out[name])} rows extracted")
+                row_count = len(out[name])
+                logger.info(f"  Sheet '{name}': {row_count} rows extracted")
             logger.info(f"Successfully read {len(out)} sheets from {Path(path).name}")
             return out
     except zipfile.BadZipFile as e:
