@@ -1,5 +1,9 @@
 """Общие хендлеры для start, help, и навигации.
 
+UPDATED 2025-12-28 23:29:
+- FIXED: Removed non-existent PromptStates attributes from ALL_STATES
+- FIXED: Using only real states that exist in PromptStates class
+
 UPDATED 2025-12-28 23:22:
 - FIXED: Правильная очистка state перед установкой нового
 - ADDED: Проверка текущего state перед выполнением
@@ -32,6 +36,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 # Collect all possible states for StateFilter
+# ВАЖНО: Используем ТОЛЬКО те states которые реально есть в классах!
 ALL_STATES = [
     ChatStates.chatting,
     HomeworkStates.selecting_subject,
@@ -39,10 +44,12 @@ ALL_STATES = [
     DocumentAnalysisStates.processing,
     ConversationStates.selecting_prompt,
     ConversationStates.ready,
-    PromptStates.selecting_category,
-    PromptStates.selecting_prompt,
-    PromptStates.viewing_details,
-    PromptStates.editing,
+    # PromptStates - используем ТОЛЬКО существующие states
+    PromptStates.entering_name,
+    PromptStates.entering_system_prompt,
+    PromptStates.entering_user_prompt,
+    PromptStates.editing_system,
+    PromptStates.editing_user,
 ]
 
 
