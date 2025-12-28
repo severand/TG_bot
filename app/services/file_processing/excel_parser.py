@@ -38,7 +38,7 @@ class ExcelParser:
             Extracted text from all sheets (tab-separated values, sheet names as headers)
             
         Raises:
-            ValueError: If file format is unsupported or conversion failed
+            ValueError: If file format is unsupported, conversion failed, or no data extracted
             FileNotFoundError: If file doesn't exist
         """
         file_name = file_path.name.lower()
@@ -54,11 +54,15 @@ class ExcelParser:
         try:
             # Используем универсальный excel_reader
             # Он сам разберётся с .xls (конвертация) и .xlsx (прямое чтение)
+            logger.debug(f"Starting extraction from: {file_path}")
             spreadsheet_data = extract_spreadsheet(str(file_path))
             
             if not spreadsheet_data:
-                logger.warning(f"Excel file {file_path.name} has no sheets or is empty")
-                return ""
+                error_msg = f"Excel file {file_path.name} has no sheets or is empty"
+                logger.warning(error_msg)
+                raise ValueError(error_msg)
+            
+            logger.info(f"Found {len(spreadsheet_data)} sheets to process")
             
             # Преобразуем в текст: лист за листом, tab-separated values
             all_text = []
@@ -71,11 +75,12 @@ class ExcelParser:
                 
                 # Пропускаем пустые листы
                 if not rows:
-                    logger.debug(f"Sheet '{sheet_name}' is empty")
+                    logger.debug(f"Sheet '{sheet_name}' is empty, skipping")
+                    all_text.append("[Empty sheet]")
                     continue
                 
                 # Строки tab-separated
-                for row in rows:
+                for row_idx, row in enumerate(rows, 1):
                     # Преобразуем значения в строки
                     cells = [
                         str(cell) if cell is not None else ""
@@ -83,8 +88,16 @@ class ExcelParser:
                     ]
                     line = "\t".join(cells)
                     all_text.append(line)
+                    
+                logger.debug(f"Sheet '{sheet_name}' processed: {len(rows)} rows extracted")
             
             text = "\n".join(all_text).strip()
+            
+            if not text:
+                error_msg = f"No data extracted from {file_path.name}"
+                logger.warning(error_msg)
+                raise ValueError(error_msg)
+            
             logger.info(f"Successfully extracted {len(text)} characters from {file_path.name}")
             return text
         
@@ -98,7 +111,7 @@ class ExcelParser:
             error_msg = str(e)
             # Если ошибка конвертации - ломаем на пользователю
             raise ValueError(
-                f"Cannot convert .xls file: {error_msg}. "
+                f"Cannot convert .xls file: {error_msg} "
                 f"Install MS Excel (Windows) or LibreOffice to convert .xls files."
             ) from e
         
