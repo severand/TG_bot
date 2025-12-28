@@ -131,12 +131,27 @@ def _read_workbook_sheets(zf: zipfile.ZipFile):
     
     for idx, sheet in enumerate(sheet_elements):
         name = sheet.get("name")
+        # Try both ways to get relationship ID
         rid = sheet.get(f"{{{_XL_NS_REL}}}id")
         
-        logger.debug(f"Sheet {idx}: name={name}, rid={rid}")
+        # Debug: log all attributes
+        logger.debug(f"Sheet {idx}: name='{name}'")
+        logger.debug(f"  All attributes: {sheet.attrib}")
+        logger.debug(f"  Looking for key: {{{_XL_NS_REL}}}id")
+        logger.debug(f"  Found rid: {rid}")
         
         if not rid:
-            logger.warning(f"Sheet '{name}' has no relationship ID, skipping")
+            # Try alternative: look for 'r:id' or just 'id'
+            for attr_key in sheet.attrib:
+                if 'id' in attr_key.lower():
+                    logger.debug(f"  Found id-like attr: {attr_key} = {sheet.attrib[attr_key]}")
+                    if 'relationships' in attr_key.lower():
+                        rid = sheet.attrib[attr_key]
+                        logger.info(f"  Using alternative rid extraction: {rid}")
+                        break
+        
+        if not rid:
+            logger.warning(f"Sheet '{name}' has no relationship ID found in attributes: {sheet.attrib}")
             continue
         
         target = rels.get(rid)
@@ -234,6 +249,11 @@ def _read_sheet(zf: zipfile.ZipFile, sheet_path: str, shared_strings):
             for cidx, val in cells_by_col.items():
                 line[cidx - 1] = val
             rows.append(line)
+            
+            # Log first row for preview
+            if row_idx == 0:
+                preview = [str(v)[:50] if v is not None else "" for v in line[:10]]
+                logger.info(f"  First row preview: {preview}")
         
         logger.debug(f"Sheet {sheet_path}: processed {len(rows)} rows")
     except Exception as e:
@@ -248,6 +268,7 @@ def read_xlsx(path: str):
     try:
         with zipfile.ZipFile(path) as zf:
             logger.debug(f"[read_xlsx] Opened ZIP file: {path}")
+            logger.debug(f"[read_xlsx] Files in archive: {zf.namelist()[:10]}")
             
             shared = _read_shared_strings(zf)
             logger.debug(f"[read_xlsx] Read {len(shared)} shared strings")
@@ -265,6 +286,12 @@ def read_xlsx(path: str):
                 out[name] = _read_sheet(zf, spath, shared)
                 row_count = len(out[name])
                 logger.info(f"[read_xlsx] Sheet '{name}': {row_count} rows extracted")
+                
+                # Log sample data
+                if out[name] and len(out[name]) > 0:
+                    sample = out[name][0][:10]
+                    sample_str = [str(v)[:30] if v is not None else "" for v in sample]
+                    logger.info(f"  Data sample (first 10 cols): {sample_str}")
             
             logger.info(f"[read_xlsx] Successfully read {len(out)} sheets from {Path(path).name}")
             return out
