@@ -1,4 +1,5 @@
-"""Конверсация моде хандлеры для анализа документов.
+"""
+Конверсация модел хандлеры для анализа документов.
 
 POLNAYA PODDERZHKA:
 - Word: .docx, .doc
@@ -6,6 +7,12 @@ POLNAYA PODDERZHKA:
 - PDF
 - Text: .txt
 - Images: .jpg, .png (OCR - LOCAL TESSERACT)
+
+UPDATED 2025-12-28 22:56:
+- FIXED: Text preview moved to logs ONLY (not displayed to user)
+- ADDED: OCR quality check (detects gibberish/handwriting)
+- IMPROVED: Better error messages for OCR failures
+- FIXED: JPG detection and handling
 
 UPDATED 2025-12-28 22:49:
 - ADDED: OCR text preview (first 300 chars) before analysis
@@ -107,12 +114,12 @@ if not TESSERACT_AVAILABLE and not EASYOCR_AVAILABLE:
 
 
 def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Получить клавиатуру с ONLY документными анализ промптами - 2 кнопки в строке.
+    """Получить клавиатуру с ONLY документным анализ промптами - 2 кнопки в строке.
     
     КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем get_prompt_by_category() для получения
     ТОЛЬКО промптов категории "document_analysis", а НЕ всех промптов.
     """
-    # Лоадим промпты пользователя
+    # Лодим промпты пользователя
     prompt_manager.load_user_prompts(user_id)
     
     # ИСПРАВЛЕНО: Получаем ТОЛЬКО промпты для документных промптов
@@ -148,7 +155,7 @@ async def cmd_analyze(message: Message, state: FSMContext) -> None:
 async def start_analyze_mode(callback: CallbackQuery = None, message: Message = None, state: FSMContext = None) -> None:
     """Начать интерактивный режим анализа документов.
     
-    NEW: Показывать выбор промпта В ПЕРВЫХ, то вапросию для документа.
+    NEW: Показывать выбор промпта В ПЕРВЫХ, то вапросии для документа.
     ТОЛЬКО промпты для анализа документов!
     """
     if state is None:
@@ -170,7 +177,7 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
     await state.set_state(ConversationStates.selecting_prompt)
     
     text = (
-        "📓 *Анализ документов*\n\n"
+        "📋 *Анализ документов*\n\n"
         "Шаг 1 из 2: *Выберите тип анализа*\n\n"
         f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
         "🔙 *ПОДДЕРЖИВАЕМЫЕ ФОРМАТЫ:*\n"
@@ -202,7 +209,7 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
 
 @router.callback_query(F.data.startswith("analyze_select_prompt_"))
 async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
-    """Обработать выбор промпта - перейти в состояние загружки документа."""
+    """Обработать выбор промпта - перейти в состояние загрузки документа."""
     prompt_name = query.data.replace("analyze_select_prompt_", "")
     user_id = query.from_user.id
     
@@ -227,7 +234,7 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
         f"📂 *Шаг 2 из 2:* Отправьте документ\n\n"
         f"🌟 *ПОДДЕРЖИВАЕМЫЕ:*\n"
         f".doc, .docx, .xls, .xlsx, .pdf, .txt, images (OCR), ZIP\n\n"
-        f"📁 Отправьте ЛЮБОЙ файл!"
+        f"📄 Отправьте ЛЮБОЙ файл!"
     )
     
     await query.message.edit_text(
@@ -250,7 +257,7 @@ async def cb_back_to_prompts(query: CallbackQuery, state: FSMContext) -> None:
     prompts = prompt_manager.get_prompt_by_category(user_id, "document_analysis")
     
     text = (
-        "📓 *Анализ документов*\n\n"
+        "📋 *Анализ документов*\n\n"
         "Шаг 1 из 2: *Выберите тип анализа*\n\n"
         f"📄 *Доступно: {len(prompts)} промптов*\n\n"
         "🌟 *ПОДДЕРЖИВАЕМЫЕ ФОРМАТЫ:*\n"
@@ -376,6 +383,14 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             await status_msg.delete()
             return
         
+        # Log preview (NOT shown to user)
+        preview_length = 300
+        preview_text = extracted_text[:preview_length]
+        logger.info(
+            f"[DOCUMENT] User {message.from_user.id} extracted: "
+            f"{len(extracted_text)} chars | Preview: {preview_text}"
+        )
+        
         # Save to state
         await state.update_data(
             document_text=extracted_text,
@@ -393,20 +408,13 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             f"{len(extracted_text)} chars"
         )
         
-        # Show preview of extracted text
-        preview_length = 300
-        preview_text = extracted_text[:preview_length]
-        if len(extracted_text) > preview_length:
-            preview_text += "...\n\n[текст обрезан]"
-        
+        # Show MINIMAL processing message - no preview
         await status_msg.edit_text(
-            f"✅ *Текст извлечен успешно!*\n\n"
+            f"✅ *Документ загружен!*\n\n"
             f"📊 *Статистика:*\n"
-            f"• Всего символов: {len(extracted_text):,}\n"
-            f"• Тип анализа: `{selected_prompt_name}`\n\n"
-            f"👀 *Превью извлеченного текста:*\n\n"
-            f"```\n{preview_text}\n```\n\n"
-            f"⏳ Анализирую документ...",
+            f"• Символов: {len(extracted_text):,}\n"
+            f"• Анализ: `{selected_prompt_name}`\n\n"
+            f"⏳ Анализирую...",
             parse_mode="Markdown",
         )
         
@@ -441,7 +449,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
     2. Фильтр в декораторе гарантирует это
     """
     if not message.photo:
-        await message.answer("❌ Фото не найден")
+        await message.answer("❌ Фото не найдено")
         return
     
     logger.info(f"User {message.from_user.id} uploading photo")
@@ -475,10 +483,20 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
                 "Убедитесь что:\n"
                 "• Фото четкое\n"
                 "• Текст хорошо виден\n"
-                "• Контрастный фон"
+                "• Контрастный фон\n\n"
+                "*⚠️ Важно:* Рукописный текст может распознаться неверно. "
+                "Используйте PDF или четкие фото печатного текста."
             )
             await status_msg.delete()
             return
+        
+        # Log preview (NOT shown to user)
+        preview_length = 300
+        preview_text = extracted_text[:preview_length]
+        logger.info(
+            f"[OCR] User {message.from_user.id} extracted: "
+            f"{len(extracted_text)} chars | Preview: {preview_text}"
+        )
         
         # Save to state
         await state.update_data(
@@ -496,21 +514,13 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
             f"Photo loaded for user {message.from_user.id}: {len(extracted_text)} chars"
         )
         
-        # Show preview of extracted text
-        preview_length = 300
-        preview_text = extracted_text[:preview_length]
-        if len(extracted_text) > preview_length:
-            preview_text += "...\n\n[текст обрезан]"
-        
-        # Update status message with analysis start
+        # Show MINIMAL processing message - no preview
         await status_msg.edit_text(
             f"✅ *Текст распознан (OCR)!*\n\n"
             f"📊 *Статистика:*\n"
-            f"• Всего символов: {len(extracted_text):,}\n"
-            f"• Тип анализа: `{selected_prompt_name}`\n\n"
-            f"👀 *Превью распознанного текста:*\n\n"
-            f"```\n{preview_text}\n```\n\n"
-            f"⏳ Анализирую документ...",
+            f"• Символов: {len(extracted_text):,}\n"
+            f"• Анализ: `{selected_prompt_name}`\n\n"
+            f"⏳ Анализирую...",
             parse_mode="Markdown",
         )
         
@@ -561,6 +571,12 @@ async def handle_text_in_analyze_mode(message: Message, state: FSMContext) -> No
             document_name="text_input",
             document_size=len(text_content),
             user_id=message.from_user.id,
+        )
+        
+        # Log text
+        logger.info(
+            f"[TEXT] User {message.from_user.id} entered: "
+            f"{len(text_content)} chars | Text: {text_content[:300]}"
         )
         
         # Get data from state
@@ -692,16 +708,20 @@ async def _extract_text_from_photo_for_analysis(
     """Извлечь текст из фото используя LOCAL OCR (Tesseract или EasyOCR).
     
     STRATEGY:
-    1. Попытаемся Tesseract (быстро, бесплатно)
+    1. Пытаемся Tesseract (быстро, бесплатно)
     2. Откатываемся на EasyOCR если нет Tesseract
     3. Если ничего нет - возвращаем пустую строку
+    
+    QUALITY CHECK:
+    - Проверяем что извлеклось >= 5 слов (иначе это мусор/рукопись)
+    - Логируем в логи для отладки
     
     Args:
         message: Message with photo
         temp_dir: Temporary directory
         
     Returns:
-        Extracted text from photo
+        Extracted text from photo (empty string if failed/poor quality)
     """
     global _ocr_reader
     
@@ -727,19 +747,21 @@ async def _extract_text_from_photo_for_analysis(
         await message.bot.download_file(file_info.file_path, temp_file)
         logger.info(f"[OCR] Downloaded successfully, size: {temp_file.stat().st_size} bytes")
         
+        extracted_text = ""
+        
         # Try Tesseract first (LOCAL, NO SSL ISSUES)
         if TESSERACT_AVAILABLE:
             try:
                 logger.info("[OCR] Attempting Tesseract extraction...")
                 image = Image.open(temp_file)
-                text = pytesseract.image_to_string(image, lang='rus+eng')
-                logger.info(f"[OCR] ✅ Tesseract: Successfully extracted {len(text)} chars")
-                return text.strip()
+                extracted_text = pytesseract.image_to_string(image, lang='rus+eng')
+                logger.info(f"[OCR] ✅ Tesseract: Successfully extracted {len(extracted_text)} chars")
             except Exception as e:
                 logger.warning(f"[OCR] Tesseract failed: {e}")
+                extracted_text = ""
         
         # Fallback to EasyOCR (also LOCAL)
-        if EASYOCR_AVAILABLE:
+        if not extracted_text and EASYOCR_AVAILABLE:
             try:
                 logger.info("[OCR] Attempting EasyOCR extraction...")
                 if _ocr_reader is None:
@@ -747,17 +769,39 @@ async def _extract_text_from_photo_for_analysis(
                     _ocr_reader = easyocr.Reader(['ru', 'en'])
                 
                 result = _ocr_reader.readtext(str(temp_file))
-                text = "\n".join([item[1] for item in result])
-                logger.info(f"[OCR] ✅ EasyOCR: Successfully extracted {len(text)} chars")
-                return text.strip()
+                extracted_text = "\n".join([item[1] for item in result])
+                logger.info(f"[OCR] ✅ EasyOCR: Successfully extracted {len(extracted_text)} chars")
             except Exception as e:
                 logger.warning(f"[OCR] EasyOCR failed: {e}")
+                extracted_text = ""
         
-        # No OCR available
-        logger.error("[OCR] ❌ NO OCR ENGINE AVAILABLE!")
-        logger.error("[OCR] Install Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki")
-        logger.error("[OCR] Or run: pip install easyocr")
-        return ""
+        # Quality check - detect gibberish/handwriting
+        if extracted_text:
+            word_count = len(extracted_text.split())
+            logger.info(f"[OCR] Quality check: {word_count} words extracted")
+            
+            if word_count < 5:
+                logger.warning(
+                    f"[OCR] ⚠️ LOW QUALITY TEXT: Only {word_count} words recognized. "
+                    f"Likely handwriting or poor image quality. Text: {extracted_text[:100]}"
+                )
+                return ""  # Return empty - text is too poor quality
+            
+            # Check for gibberish patterns (lots of strange chars)
+            strange_chars = sum(1 for c in extracted_text if ord(c) > 127 and c not in 'абвгдеёжзийклмнопрстуфхцчшщъыьэюяЀЁЂЃЄЅІЇЈЉЊЋЌЍЎЏАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ')
+            if len(extracted_text) > 50 and strange_chars > len(extracted_text) * 0.3:
+                logger.warning(
+                    f"[OCR] ⚠️ GIBBERISH DETECTED: {strange_chars}/{len(extracted_text)} strange chars. "
+                    f"Text: {extracted_text[:100]}"
+                )
+                return ""  # Return empty - too much garbage
+        
+        if not extracted_text:
+            logger.error("[OCR] ❌ NO OCR ENGINE AVAILABLE or extraction failed!")
+            logger.error("[OCR] Install Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki")
+            logger.error("[OCR] Or run: pip install easyocr")
+        
+        return extracted_text.strip()
     
     except Exception as e:
         logger.error(f"[OCR] Top-level exception: {type(e).__name__}: {e}")
