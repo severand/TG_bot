@@ -161,7 +161,7 @@ def _read_sheet(zf: zipfile.ZipFile, sheet_path: str, shared_strings):
                     else:
                         txt = v_node.text
                         try:
-                            value = float(txt) if ((".".in txt) or ("e" in txt) or ("E" in txt)) else int(txt)
+                            value = float(txt) if ((".") in txt or ("e" in txt) or ("E" in txt)) else int(txt)
                         except ValueError:
                             value = txt
                 else:
