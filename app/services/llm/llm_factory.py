@@ -20,7 +20,15 @@ import asyncio
 import logging
 from typing import Union, Optional, AsyncIterator
 
-from app.services.llm.openai_client import OpenAIClient
+try:
+    from app.services.llm.openai_client import OpenAIClient
+    OPENAI_AVAILABLE = True
+except ImportError as e:
+    logger_import = logging.getLogger(__name__)
+    logger_import.warning(f"OpenAI client not available: {e}. Will use Replicate fallback.")
+    OpenAIClient = None
+    OPENAI_AVAILABLE = False
+
 from app.services.llm.replicate_client import ReplicateClient
 
 logger = logging.getLogger(__name__)
@@ -86,8 +94,8 @@ class LLMFactory:
         self.openai_client: Optional[OpenAIClient] = None
         self.replicate_client: Optional[ReplicateClient] = None
         
-        # Initialize OpenAI
-        if openai_api_key:
+        # Initialize OpenAI only if available and key provided
+        if OPENAI_AVAILABLE and openai_api_key:
             try:
                 self.openai_client = OpenAIClient(
                     api_key=openai_api_key,
@@ -96,6 +104,11 @@ class LLMFactory:
                 logger.info(f"OpenAI client initialized (model: {openai_model})")
             except Exception as e:
                 logger.warning(f"Failed to initialize OpenAI client: {e}")
+        elif openai_api_key and not OPENAI_AVAILABLE:
+            logger.warning(
+                f"OPENAI_API_KEY is set but OpenAI client is not available. "
+                f"Will use Replicate instead."
+            )
         
         # Initialize Replicate
         if replicate_api_token:
