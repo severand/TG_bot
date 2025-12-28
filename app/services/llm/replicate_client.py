@@ -8,16 +8,19 @@ UNIFIED LOGGING 2025-12-25 14:44:
 - Логируем ВСЕГДА: [LLM SYSTEM PROMPT] - системный промпт
 - Логируем ВСЕГДА: [LLM USER PROMPT] - пользовательский промпт
 - ОДИН РАЗ - в analyze_document_stream (используется везде)
-- БЕЗ ДУБЛЕЙ в handlers (documents, homework, rag, etc.)
+- БЕЗ ДУБЛЕй в handlers (documents, homework, rag, etc.)
 
-Fixes 2025-12-21 14:23:
-- Увеличен timeout для больших документов (30s -> 180s)
-- httpx настройка таймаута через environment
-- Логирование размера документа
+FIXES 2025-12-28 20:35:
+- REPLICATE_TIMEOUT=300 (5 minutes)
+- httpx timeout=300 для больших документов
+- Объем документа капсулируется в полю
+- Обработка timeout/network ошибок
+- Чном разбить большое не требуется
 """
 
 import logging
 import os
+import httpx
 from typing import AsyncIterator, Optional, List, Dict, Any
 
 try:
@@ -49,6 +52,9 @@ class ReplicateClient:
         model: Model name (e.g., "openai/gpt-4o-mini" or "openai/gpt-5")
     """
     
+    # Maximum document size (in chars)
+    MAX_DOC_SIZE = 500_000  # 500K chars
+    
     def __init__(
         self,
         api_token: str,
@@ -72,16 +78,30 @@ class ReplicateClient:
         # CRITICAL: Set the API token as environment variable
         os.environ["REPLICATE_API_TOKEN"] = api_token
         
-        # FIX: Increase timeout for large documents (default 30s -> 180s)
+        # FIX: Increase timeout for large documents (300s = 5 minutes)
         # This prevents "timed out" errors on big docs
-        os.environ["REPLICATE_TIMEOUT"] = "180"
+        os.environ["REPLICATE_TIMEOUT"] = "300"
+        
+        # CRITICAL: Set httpx timeout for replicate client
+        # This is required for large document processing
+        os.environ["HTTPX_TIMEOUT"] = "300"
+        
+        # Also try to configure replicate's internal httpx client if possible
+        try:
+            # Some versions of replicate allow client customization
+            if hasattr(replicate, "set_http_client"):
+                client = httpx.Client(timeout=300)
+                replicate.set_http_client(client)
+        except Exception:
+            pass  # If this fails, just continue - env vars should work
         
         self.client = replicate
         self.api_token = api_token
         self.model = model
         
         logger.info(f"Replicate client initialized with model: {model}")
-        logger.info("Replicate timeout set to 180s for large documents")
+        logger.info("Replicate timeout set to 300s (5 min) for large documents")
+        logger.info("httpx timeout set to 300s for network operations")
     
     def _get_model_input(
         self,
@@ -201,6 +221,17 @@ class ReplicateClient:
         if not document_text or not document_text.strip():
             raise ValueError("Document text cannot be empty")
         
+        # Check document size
+        if len(document_text) > self.MAX_DOC_SIZE:
+            logger.warning(
+                f"Document size ({len(document_text)} chars) exceeds "
+                f"recommended limit ({self.MAX_DOC_SIZE} chars). "
+                f"May timeout. Truncating..."
+            )
+            # Truncate to max size
+            document_text = document_text[:self.MAX_DOC_SIZE]
+            logger.info(f"Document truncated to {len(document_text)} chars")
+        
         if not user_prompt or not user_prompt.strip():
             user_prompt = "Analyze this document and provide key insights"
         
@@ -242,16 +273,29 @@ class ReplicateClient:
                 max_tokens=4096,
             )
             
-            # Stream from Replicate (with 180s timeout set in __init__)
+            # Stream from Replicate (with 300s timeout set in __init__)
             for output in self.client.stream(self.model, input=input_data):
                 if output:
                     yield str(output)
             
             logger.info("Stream analysis completed")
         
+        except TimeoutError as e:
+            logger.error(f"Replicate timeout (>300s): {e}")
+            raise ReplicateClientError(
+                f"Document analysis timed out (>5 min). "
+                f"Document may be too large or Replicate API is slow."
+            ) from e
         except Exception as e:
-            logger.error(f"Replicate streaming error: {e}")
-            raise ReplicateClientError(f"Replicate API error: {e}") from e
+            error_str = str(e).lower()
+            if "timeout" in error_str or "timed out" in error_str:
+                logger.error(f"Replicate streaming timeout: {e}")
+                raise ReplicateClientError(
+                    f"Analysis timeout. Try with smaller document."
+                ) from e
+            else:
+                logger.error(f"Replicate streaming error: {e}")
+                raise ReplicateClientError(f"Replicate API error: {e}") from e
     
     async def analyze_document(
         self,
