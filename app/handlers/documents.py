@@ -3,16 +3,20 @@
 Handles file uploads, processing, and analysis responses.
 Supports multiple LLM providers with fallback.
 
+UPDATED 2025-12-28 23:10:
+- REPLACED: OCR.space API → LOCAL Tesseract/EasyOCR (no SSL issues!)
+- ADDED: Unified OCR Service across all modes
+- FIXED: JPG recognition now works in all modes
+- IMPROVED: Quality assessment for OCR results
+
 UPDATED 2025-12-25 14:45:
-- УДАЛЕНЫ дубли логирования текстов и промптов
+- УДАЛЕНы дубли логирования текстов и промптов
 - Все логирование теперь в replicate_client.py
-- See replicate_client.py for [LLM TEXT], [LLM SYSTEM PROMPT], [LLM USER PROMPT]
 """
 
 import logging
 import tempfile
 import uuid
-import base64
 import asyncio
 from pathlib import Path
 
@@ -31,6 +35,7 @@ from app.states.conversation import ConversationStates
 from app.states.prompts import PromptStates
 from app.services.file_processing.converter import FileConverter
 from app.services.llm.llm_factory import LLMFactory
+from app.services.ocr import OCRService, OCRQualityLevel
 from app.utils.text_splitter import TextSplitter
 from app.utils.cleanup import CleanupManager
 
@@ -38,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 config = get_settings()
+ocr_service = OCRService()
 
 llm_factory = LLMFactory(
     primary_provider=config.LLM_PROVIDER,
@@ -147,7 +153,7 @@ async def handle_document(
             logger.error(f"Timeout downloading file {document.file_name}")
             await message.answer(
                 "⚠️ Таймаут при скачивании файла.\n"
-                "Попробуйте с более маленьким файлом."
+                "Попробуйте с более малым файлом."
             )
             await processing_msg.delete()
             await state.clear()
@@ -166,7 +172,7 @@ async def handle_document(
         
         await processing_msg.edit_text(
             "🔍 Обрабатываю документ...\n"
-            "Извлечение текста..."
+            "Обработка содержимого..."
         )
         
         try:
@@ -297,7 +303,7 @@ async def handle_photo(
     message: Message,
     state: FSMContext,
 ) -> None:
-    """Обработка фото в ОБЩЕМ режиме с OCR.
+    """Обработка фото в ОБЩЕМ режиме с LOCAL OCR.
     
     Args:
         message: User message with photo
@@ -318,7 +324,7 @@ async def handle_photo(
     await state.set_state(DocumentAnalysisStates.processing)
     
     processing_msg = await message.answer(
-        "📇 Обрабатываю фото...\n"
+        "📗 Обрабатываю фото...\n"
         "Распознавание текста (OCR)..."
     )
     
@@ -333,7 +339,22 @@ async def handle_photo(
             user_id,
         )
         
-        extracted_text = await _extract_text_from_photo(message, temp_user_dir, files_to_cleanup)
+        # Download photo
+        photo = message.photo[-1]
+        file_info = await message.bot.get_file(photo.file_id)
+        temp_file = temp_user_dir / f"photo_{photo.file_unique_id}.jpg"
+        await message.bot.download_file(file_info.file_path, temp_file)
+        files_to_cleanup.append(temp_file)
+        
+        logger.info(f"Downloaded photo: {temp_file}")
+        
+        # Extract text using unified OCR service
+        extracted_text, quality = await ocr_service.extract_from_file(temp_file, user_id)
+        
+        logger.info(
+            f"[OCR QUALITY] User {user_id}: {quality.value} | "
+            f"{len(extracted_text)} chars, {len(extracted_text.split())} words"
+        )
         
         if not extracted_text or not extracted_text.strip():
             await message.answer(
@@ -341,7 +362,18 @@ async def handle_photo(
                 "Убедитесь что:\n"
                 "• Фото четкое\n"
                 "• Текст хорошо виден\n"
-                "• Контрастный фон"
+                "• Контрастный фон\n\n"
+                "*⚠️ ВАЖНО:* Рукописный текст может распознаться неверно. "
+                "Используйте PDF или четкие фото печатного текста."
+            )
+            await processing_msg.delete()
+            await state.clear()
+            return
+        
+        if quality == OCRQualityLevel.POOR:
+            await message.answer(
+                "⚠️ КАЧЕСТВО OCR: Низкое\n"
+                "Можно сложная рукопись или низкая текстура источника."
             )
             await processing_msg.delete()
             await state.clear()
@@ -356,7 +388,7 @@ async def handle_photo(
         )
         
         await processing_msg.edit_text(
-            "📇 Обрабатываю фото...\n"
+            "📗 Обрабатываю фото...\n"
             f"🤖 Анализирую с {config.LLM_PROVIDER}..."
         )
         
@@ -410,7 +442,7 @@ async def handle_photo(
                     parse_mode="Markdown",
                 )
             except TelegramNetworkError as e:
-                logger.error(f"Network error sending: {e}")
+                logger.error(f"Ошибка сети при отправке: {e}")
                 continue
         
         logger.info(
@@ -434,78 +466,3 @@ async def handle_photo(
             await CleanupManager.cleanup_files_async(files_to_cleanup)
         if temp_user_dir and temp_user_dir.exists():
             await CleanupManager.cleanup_directory_async(temp_user_dir)
-
-
-async def _extract_text_from_photo(
-    message: Message,
-    temp_dir: Path,
-    cleanup_list: list[Path],
-) -> str:
-    """Extract text from photo using OCR.space API.
-    
-    Args:
-        message: Message with photo
-        temp_dir: Temporary directory
-        cleanup_list: List to add files for cleanup
-        
-    Returns:
-        Extracted text from photo
-    """
-    try:
-        import httpx
-        
-        photo = message.photo[-1]
-        file_info = await message.bot.get_file(photo.file_id)
-        
-        temp_file = temp_dir / f"photo_{photo.file_unique_id}.jpg"
-        await message.bot.download_file(file_info.file_path, temp_file)
-        cleanup_list.append(temp_file)
-        
-        with open(temp_file, "rb") as f:
-            photo_bytes = f.read()
-        
-        photo_base64 = base64.b64encode(photo_bytes).decode("utf-8")
-        
-        async with httpx.AsyncClient() as client:
-            response = await asyncio.wait_for(
-                client.post(
-                    "https://api.ocr.space/parse/image",
-                    data={
-                        "apikey": config.OCR_SPACE_API_KEY,
-                        "base64Image": f"data:image/jpeg;base64,{photo_base64}",
-                        "language": "rus",
-                        "isOverlayRequired": False,
-                        "detectOrientation": True,
-                        "scale": True,
-                        "OCREngine": 2,
-                    },
-                ),
-                timeout=30.0,
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"OCR error: {response.status_code}")
-                return ""
-            
-            result = response.json()
-            
-            if result.get("IsErroredOnProcessing"):
-                error_msg = result.get("ErrorMessage", "Unknown")
-                logger.error(f"OCR error: {error_msg}")
-                return ""
-            
-            parsed_results = result.get("ParsedResults", [])
-            if not parsed_results:
-                logger.warning("OCR: No text detected")
-                return ""
-            
-            text = parsed_results[0].get("ParsedText", "")
-            logger.info(f"OCR: Extracted {len(text)} chars")
-            return text.strip()
-    
-    except asyncio.TimeoutError:
-        logger.error("OCR: Timeout")
-        return ""
-    except Exception as e:
-        logger.error(f"OCR error: {type(e).__name__}: {str(e)}")
-        return ""
