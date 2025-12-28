@@ -25,7 +25,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.states.homework import HomeworkStates
 from app.services.homework import HomeworkChecker, SubjectCheckers, ResultVisualizer
-from app.services.llm.replicate_client import ReplicateClient
+from app.services.llm.llm_factory import LLMFactory
 from app.services.file_processing import PDFParser, DOCXParser
 from app.services.prompts.prompt_manager import PromptManager
 from app.config import get_settings
@@ -34,6 +34,16 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 prompt_manager = PromptManager()
+config = get_settings()
+
+# Initialize LLMFactory once
+llm_factory = LLMFactory(
+    primary_provider=config.LLM_PROVIDER,
+    openai_api_key=config.OPENAI_API_KEY or None,
+    openai_model=config.OPENAI_MODEL,
+    replicate_api_token=config.REPLICATE_API_TOKEN or None,
+    replicate_model=config.REPLICATE_MODEL,
+)
 
 
 def get_subjects_keyboard() -> InlineKeyboardMarkup:
@@ -124,9 +134,9 @@ async def select_subject(
             f"{subject.emoji} <b>{subject.name}</b>\n\n"
             f"💬 {subject.description}\n\n"
             f"<b>📄 Отправьте:</b>\n"
-            f"\u2022 Текст с решением\n"
-            f"\u2022 Фото (текст распознается автоматически)\n"
-            f"\u2022 PDF или DOCX файл\n\n"
+            f"• Текст с решением\n"
+            f"• Фото (текст распознается автоматически)\n"
+            f"• PDF или DOCX файл\n\n"
             f"✍️ <i>Редактировать промпт для этого предмета:</i>\n"
             f"<code>/prompts</code> → Домашка → {subject.name} → Редактировать"
         ),
@@ -178,9 +188,9 @@ async def process_homework_file(
                 text=(
                     f"❌ Не удалось получить текст\n\n"
                     f"Проверьте:\n"
-                    f"\u2022 Фото должно быть четким\n"
-                    f"\u2022 Текст должен быть читаемым\n"
-                    f"\u2022 Ор отправьте текст сообщением"
+                    f"• Фото должно быть четким\n"
+                    f"• Текст должен быть читаемым\n"
+                    f"• Или отправьте текст сообщением"
                 )
             )
             await state.clear()
@@ -188,12 +198,7 @@ async def process_homework_file(
         
         logger.info(f"Homework content: {len(content)} chars for user {user_id}")
         
-        settings = get_settings()
-        llm = ReplicateClient(
-            api_token=settings.REPLICATE_API_TOKEN,
-            model=settings.REPLICATE_MODEL
-        )
-        checker = HomeworkChecker(llm)
+        checker = HomeworkChecker(llm_factory)
         
         prompt_manager.load_user_prompts(user_id)
         subject_prompt_name = f"{subject_code}_homework"
@@ -209,7 +214,7 @@ async def process_homework_file(
                 "Проверяй ответы студентов справедливо и конструктивно. "
                 "Выделяй правильные части, указывай ошибки и предлагай улучшения. "
                 "Объясняй, почему что-то неправильно, и как это исправить. "
-                "Бь мотивирующим и поддерживающим в своем тоне."
+                "Будь мотивирующим и поддерживающим в своем тоне."
             )
         
         user_instruction = f"Проверь это домашнее задание по предмету {subject_code}\n\n{content}"
