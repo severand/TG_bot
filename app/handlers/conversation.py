@@ -5,7 +5,12 @@ POLNAYA PODDERZHKA:
 - Excel: .xlsx, .xls  
 - PDF
 - Text: .txt
-- Images: .jpg, .png (OCR)
+- Images: .jpg, .png (OCR - LOCAL TESSERACT)
+
+UPDATED 2025-12-28 21:52:
+- REPLACED OCR.space with LOCAL Tesseract (NO SSL issues!)
+- Added EasyOCR as fallback if Tesseract not installed
+- 100% offline capable - no API calls needed
 
 UPDATED 2025-12-28 20:57:
 - REMOVED format restrictions
@@ -55,6 +60,25 @@ llm_factory = LLMFactory(
     replicate_api_token=config.REPLICATE_API_TOKEN or None,
     replicate_model=config.REPLICATE_MODEL,
 )
+
+# Try to import OCR libraries at module level
+try:
+    import pytesseract
+    from PIL import Image
+    TESSERACT_AVAILABLE = True
+    logger.info("[OCR] Tesseract available - will use LOCAL OCR")
+except ImportError:
+    TESSERACT_AVAILABLE = False
+    logger.warning("[OCR] Tesseract NOT available - will try EasyOCR")
+    try:
+        import easyocr
+        EASYOCR_AVAILABLE = True
+        logger.info("[OCR] EasyOCR available as fallback")
+        # Initialize reader once (expensive operation)
+        _ocr_reader = None
+    except ImportError:
+        EASYOCR_AVAILABLE = False
+        logger.error("[OCR] NEITHER Tesseract NOR EasyOCR available!")
 
 
 def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
@@ -415,7 +439,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
             unique_temp_name,
         )
         
-        # Extract text from photo using OCR
+        # Extract text from photo using LOCAL OCR
         extracted_text = await _extract_text_from_photo_for_analysis(message, temp_user_dir)
         
         if not extracted_text or not extracted_text.strip():
@@ -626,7 +650,12 @@ async def _extract_text_from_photo_for_analysis(
     message: Message,
     temp_dir: Path,
 ) -> str:
-    """Извлечь текст из фото используя OCR.space cloud API.
+    """Извлечь текст из фото используя LOCAL OCR (Tesseract или EasyOCR).
+    
+    STRATEGY:
+    1. Попытаемся Tesseract (быстро, бесплатно)
+    2. Откатываемся на EasyOCR если нет Tesseract
+    3. Если ничего нет - всё равно дюжать текст уже...
     
     Args:
         message: Message with photo
@@ -636,11 +665,8 @@ async def _extract_text_from_photo_for_analysis(
         Extracted text from photo
     """
     try:
-        import httpx
-        import base64
-        import asyncio
-        
         logger.info(f"[OCR] Starting extraction for user {message.from_user.id}")
+        logger.info(f"[OCR] Available: Tesseract={TESSERACT_AVAILABLE}, EasyOCR={EASYOCR_AVAILABLE if not TESSERACT_AVAILABLE else 'N/A'}")
         
         # Get largest photo
         if not message.photo:
@@ -660,109 +686,40 @@ async def _extract_text_from_photo_for_analysis(
         await message.bot.download_file(file_info.file_path, temp_file)
         logger.info(f"[OCR] Downloaded successfully, size: {temp_file.stat().st_size} bytes")
         
-        # Read photo as base64
-        with open(temp_file, "rb") as f:
-            photo_bytes = f.read()
-        logger.info(f"[OCR] Read {len(photo_bytes)} bytes from file")
-        
-        photo_base64 = base64.b64encode(photo_bytes).decode("utf-8")
-        logger.info(f"[OCR] Encoded to base64, size: {len(photo_base64)} chars")
-        
-        # Prepare API payload
-        api_key = config.OCR_SPACE_API_KEY
-        if not api_key:
-            logger.error("[OCR] OCR_SPACE_API_KEY not configured")
-            return ""
-        
-        payload = {
-            "apikey": api_key,
-            "base64Image": f"data:image/jpeg;base64,{photo_base64}",
-            "language": "rus",
-            "isOverlayRequired": False,
-            "detectOrientation": True,
-            "scale": True,
-            "OCREngine": 2,
-        }
-        logger.info(f"[OCR] Prepared payload, base64 size: {len(payload['base64Image'])} chars")
-        
-        # Call OCR.space API with proper timeouts and SSL verification disabled
-        max_retries = 3
-        for attempt in range(1, max_retries + 1):
+        # Try Tesseract first (LOCAL, NO SSL ISSUES)
+        if TESSERACT_AVAILABLE:
             try:
-                logger.info(f"[OCR] Calling OCR.space API (attempt {attempt}/{max_retries})...")
-                async with httpx.AsyncClient(verify=False) as client:
-                    response = await client.post(
-                        "https://api.ocr.space/parse/image",
-                        data=payload,
-                        timeout=httpx.Timeout(60.0, connect=30.0),
-                    )
-                    
-                    logger.info(f"[OCR] Got response status {response.status_code}")
-                    
-                    if response.status_code != 200:
-                        logger.error(f"[OCR] API error {response.status_code}: {response.text[:200]}")
-                        if attempt < max_retries:
-                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                            continue
-                        return ""
-                    
-                    # Parse response
-                    try:
-                        result = response.json()
-                    except Exception as e:
-                        logger.error(f"[OCR] Failed to parse JSON response: {e}")
-                        logger.error(f"[OCR] Response text: {response.text[:500]}")
-                        if attempt < max_retries:
-                            await asyncio.sleep(2 ** attempt)
-                            continue
-                        return ""
-                    
-                    logger.info(f"[OCR] Response keys: {result.keys()}")
-                    
-                    # Check for processing errors
-                    if result.get("IsErroredOnProcessing"):
-                        error_msg = result.get("ErrorMessage", "Unknown error")
-                        logger.error(f"[OCR] Processing error: {error_msg}")
-                        if attempt < max_retries:
-                            await asyncio.sleep(2 ** attempt)
-                            continue
-                        return ""
-                    
-                    # Extract text from parsed results
-                    parsed_results = result.get("ParsedResults", [])
-                    if not parsed_results:
-                        logger.warning("[OCR] No parsed results in response")
-                        logger.info(f"[OCR] Full response: {result}")
-                        if attempt < max_retries:
-                            await asyncio.sleep(2 ** attempt)
-                            continue
-                        return ""
-                    
-                    text = parsed_results[0].get("ParsedText", "")
-                    logger.info(f"[OCR] Successfully extracted {len(text)} chars from photo")
-                    return text.strip()
-            
-            except httpx.ConnectError as e:
-                logger.warning(f"[OCR] Connection error (attempt {attempt}/{max_retries}): {type(e).__name__}")
-                if attempt < max_retries:
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff: 2s, 4s, 8s
-                    continue
-                logger.error(f"[OCR] Failed after {max_retries} attempts")
-                return ""
-            except asyncio.TimeoutError:
-                logger.warning(f"[OCR] Timeout (attempt {attempt}/{max_retries})")
-                if attempt < max_retries:
-                    await asyncio.sleep(2 ** attempt)
-                    continue
-                return ""
+                logger.info("[OCR] Attempting Tesseract extraction...")
+                image = Image.open(temp_file)
+                text = pytesseract.image_to_string(image, lang='rus+eng')
+                logger.info(f"[OCR] Tesseract: Successfully extracted {len(text)} chars")
+                return text.strip()
             except Exception as e:
-                logger.error(f"[OCR] Unexpected error (attempt {attempt}/{max_retries}): {type(e).__name__}: {e}")
-                if attempt < max_retries:
-                    await asyncio.sleep(2 ** attempt)
-                    continue
-                import traceback
-                logger.error(f"[OCR] Traceback:\n{traceback.format_exc()}")
-                return ""
+                logger.warning(f"[OCR] Tesseract failed: {e}. Trying fallback...")
+        
+        # Fallback to EasyOCR (also LOCAL)
+        if EASYOCR_AVAILABLE:
+            try:
+                logger.info("[OCR] Attempting EasyOCR extraction...")
+                global _ocr_reader
+                if _ocr_reader is None:
+                    logger.info("[OCR] Initializing EasyOCR reader (first time, slow)...")
+                    _ocr_reader = easyocr.Reader(['ru', 'en'])
+                
+                result = _ocr_reader.readtext(str(temp_file))
+                text = "\n".join([item[1] for item in result])
+                logger.info(f"[OCR] EasyOCR: Successfully extracted {len(text)} chars")
+                return text.strip()
+            except Exception as e:
+                logger.warning(f"[OCR] EasyOCR failed: {e}")
+        
+        # No OCR available - return empty string gracefully
+        logger.error("[OCR] NEITHER Tesseract NOR EasyOCR available!")
+        logger.error("[OCR] Install one of:")
+        logger.error("[OCR]   pip install pytesseract pillow")
+        logger.error("[OCR]   pip install easyocr")
+        logger.error("[OCR] For Windows: Also install Tesseract-OCR from https://github.com/UB-Mannheim/tesseract/wiki")
+        return ""
     
     except Exception as e:
         logger.error(f"[OCR] Top-level exception: {type(e).__name__}: {e}")
