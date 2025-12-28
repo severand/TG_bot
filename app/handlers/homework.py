@@ -198,35 +198,31 @@ async def process_homework_file(
         
         logger.info(f"Homework content: {len(content)} chars for user {user_id}")
         
+        # Initialize checker with LLM factory
         checker = HomeworkChecker(llm_factory)
         
+        # Load user-specific prompts
         prompt_manager.load_user_prompts(user_id)
         subject_prompt_name = f"{subject_code}_homework"
         homework_prompt = prompt_manager.get_prompt(user_id, subject_prompt_name)
         
+        # Determine system prompt
         if homework_prompt:
             system_prompt = homework_prompt.system_prompt
             logger.info(f"Using subject-specific homework prompt: {subject_prompt_name}")
         else:
             logger.warning(f"Homework prompt not found for subject {subject_code}, using default")
-            system_prompt = (
-                "Ты опытный учитель и эксперт по проверке домашних заданий. "
-                "Проверяй ответы студентов справедливо и конструктивно. "
-                "Выделяй правильные части, указывай ошибки и предлагай улучшения. "
-                "Объясняй, почему что-то неправильно, и как это исправить. "
-                "Будь мотивирующим и поддерживающим в своем тоне."
-            )
+            system_prompt = None  # Let HomeworkChecker use its default
         
-        user_instruction = f"Проверь это домашнее задание по предмету {subject_code}\n\n{content}"
-        
+        # Check homework - HomeworkChecker handles prompt creation internally
         result = await checker.check_homework(
             content=content,
             subject=subject_code,
-            system_prompt=system_prompt,
-            user_prompt=user_instruction,
-            user_id=user_id,
+            file_type="text",
+            system_prompt=system_prompt
         )
         
+        # Format and send result
         result_text = ResultVisualizer.format_result(result)
         result_text += (
             "\n\n"
