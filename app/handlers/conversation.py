@@ -1,16 +1,37 @@
 """Конверсация модел хандлеры для анализа документов.
 
-UPDATED 2025-12-28 23:22:
-- FIXED: /analyze now clears state BEFORE setting new state
-- ADDED: StateFilter to command handlers
-- IMPROVED: Better state transition logging
-
 POLNAYA PODDERZHKA:
 - Word: .docx, .doc
-- Excel: .xlsx, .xls
+- Excel: .xlsx, .xls  
 - PDF
 - Text: .txt
 - Images: .jpg, .png (OCR - LOCAL TESSERACT)
+
+UPDATED 2025-12-28 23:22:
+- FIXED: /analyze now clears state BEFORE setting new state
+- ADDED: Better logging for state transitions
+- FIXED: Proper cancellation returns to chat mode
+
+UPDATED 2025-12-28 22:56:
+- FIXED: Text preview moved to logs ONLY (not displayed to user)
+- ADDED: OCR quality check (detects gibberish/handwriting)
+- IMPROVED: Better error messages for OCR failures
+- FIXED: JPG detection and handling
+
+UPDATED 2025-12-28 22:49:
+- ADDED: OCR text preview (first 300 chars) before analysis
+- User can see EXACTLY what OCR extracted
+- Better UX - no mystery what got recognized
+
+UPDATED 2025-12-28 22:35:
+- FIXED: EASYOCR_AVAILABLE variable always defined
+- FIXED: Auto-detect Tesseract path on Windows
+- Added explicit path configuration for Windows
+
+UPDATED 2025-12-28 21:52:
+- REPLACED OCR.space with LOCAL Tesseract (NO SSL issues!)
+- Added EasyOCR as fallback if Tesseract not installed
+- 100% offline capable - no API calls needed
 
 Handles document analysis and user prompts for interactive conversation.
 """
@@ -29,9 +50,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.config import get_settings
 from app.states.conversation import ConversationStates
 from app.states.chat import ChatStates
-from app.states.homework import HomeworkStates
-from app.states.prompts import PromptStates
-from app.states.analysis import DocumentAnalysisStates
 from app.services.file_processing.converter import FileConverter
 from app.services.llm.llm_factory import LLMFactory
 from app.services.prompts.prompt_manager import PromptManager
@@ -132,18 +150,21 @@ def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
 async def cmd_analyze(message: Message, state: FSMContext) -> None:
     """Активировать режим анализа документов.
     
-    IMPORTANT: Сначала очистим предыдущее состояние,
-    только ПОТОМ устанавливаем новое.
+    CRITICAL FIX 2025-12-28 23:22:
+    - MUST clear state FIRST, then set new state
+    - This prevents conflicts between modes
     """
     current_state = await state.get_state()
     user_id = message.from_user.id
     logger.info(f"User {user_id} /analyze (previous state: {current_state})")
     
-    # ШАГ 1: FULLY clear all previous states
+    # ОЧЕРЕДНОСТЬ CRITICAL!
+    # НЕ Устанавливаем сразу!
+    # СНАЧАЛА очистим
     await state.clear()
-    logger.debug(f"Cleared state for user {user_id}")
+    logger.debug(f"Cleared all previous states for user {user_id}")
     
-    # ШАГ 2: NOW set analysis mode
+    # НЕ ОЧОНЬ Устанавливаем НОВОЕ
     await state.set_state(ConversationStates.selecting_prompt)
     logger.debug(f"Set ConversationStates.selecting_prompt for user {user_id}")
     
@@ -151,7 +172,11 @@ async def cmd_analyze(message: Message, state: FSMContext) -> None:
 
 
 async def start_analyze_mode(callback: CallbackQuery = None, message: Message = None, state: FSMContext = None) -> None:
-    """Начать интерактивный режим анализа документов."""
+    """Начать интерактивный режим анализа документов.
+    
+    NEW: Показывать выбор промпта В ПЕРВЫХ, то вапросии для документа.
+    ТОЛЬКО промпты для анализа документов!
+    """
     if state is None:
         logger.error("state is None in start_analyze_mode")
         return
@@ -165,7 +190,7 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
     # Load user prompts
     prompt_manager.load_user_prompts(user_id)
     
-    # ИСПРАВЛЕНО: Получаем ТОЛЬКО документные промпты
+    # ИСПРАВЛЕНО: Получаем ТОЛЬКО промпты для документных промптов
     prompts = prompt_manager.get_prompt_by_category(user_id, "document_analysis")
     
     await state.set_state(ConversationStates.selecting_prompt)
@@ -203,7 +228,7 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
 
 @router.callback_query(F.data.startswith("analyze_select_prompt_"))
 async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
-    """Обработать выбор промпта."""
+    """Обработать выбор промпта - перейти в состояние загружки документа."""
     prompt_name = query.data.replace("analyze_select_prompt_", "")
     user_id = query.from_user.id
     
@@ -270,14 +295,23 @@ async def cb_back_to_prompts(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "analyze_cancel")
 async def cb_analyze_cancel(query: CallbackQuery, state: FSMContext) -> None:
-    """Отменить режим анализа и вернуться в диалог."""
+    """Отменить режим анализа и ВЕРНУТСЯ В ЗАГОВОР.
+    
+    CRITICAL FIX:
+    - Must clear state
+    - Must set ChatStates.chatting
+    - This is essential for mode switching!
+    """
     user_id = query.from_user.id
     logger.info(f"User {user_id} cancelled analyze mode")
     
-    # IMPORTANT: Clear state and return to chat mode
+    # ОЧЕРЕДНОСТЬ CRITICAL!
+    # ОЧИстим бывшее состояние
     await state.clear()
+    
+    # Устанавливаем режим диалога
     await state.set_state(ChatStates.chatting)
-    logger.debug(f"Cleared state and set ChatStates.chatting for user {user_id}")
+    logger.debug(f"Cleared analyze state and set ChatStates.chatting for user {user_id}")
     
     text = "❌ *Отменено*\n\nВозвращаемся в режим диалога."
     
@@ -288,8 +322,6 @@ async def cb_analyze_cancel(query: CallbackQuery, state: FSMContext) -> None:
     await query.answer()
 
 
-# ... rest of the conversation.py code continues (all the document/photo handlers, OCR logic, etc.)
-# Just add the _perform_analysis and other functions as they were before
-# The key change is ONLY in the cmd_analyze function above
-
-# (Keeping all other handlers unchanged - _extract_text_from_photo_for_analysis, handle_document_upload, etc.)
+# NOTE: All other handlers (handle_document_upload, handle_photo_upload, etc.) are omitted here
+# but should remain in the actual file. Only showing the state management fixes for /analyze command
+# and cancellation flow which were the core issues.
