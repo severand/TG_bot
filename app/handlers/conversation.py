@@ -7,31 +7,22 @@ POLNAYA PODDERZHKA:
 - Text: .txt
 - Images: .jpg, .png (OCR - LOCAL TESSERACT)
 
+UPDATED 2025-12-28 22:35:
+- FIXED: EASYOCR_AVAILABLE variable always defined
+- FIXED: Auto-detect Tesseract path on Windows
+- Added explicit path configuration for Windows
+
 UPDATED 2025-12-28 21:52:
 - REPLACED OCR.space with LOCAL Tesseract (NO SSL issues!)
 - Added EasyOCR as fallback if Tesseract not installed
 - 100% offline capable - no API calls needed
-
-UPDATED 2025-12-28 20:57:
-- REMOVED format restrictions
-- Support ALL formats via openpyxl + pandas
-- Graceful error handling only on actual failures
-
-UPDATED 2025-12-25 14:48:
-- Added user_id parameter to analyze_document calls
-- All logging now includes user context
-
-Fixes 2025-12-25 11:27:
-- АРХИТЕКТУРНАЯ ОПТИМизация: ЭКСПЛИЦИТНЫЕ state filters в декораторах
-- Обработчики срабатывают ТОЛЬКО когда пользователь В ConversationStates.ready
-- В других режимах (домашка, промпты) документы обрабатываются специализированными обработчиками
-- НИКАКОГО конфликта между режимами вовле
 
 Handles document analysis and user prompts for interactive conversation.
 """
 
 import logging
 import uuid
+import os
 from pathlib import Path
 
 from aiogram import Router, F
@@ -61,24 +52,53 @@ llm_factory = LLMFactory(
     replicate_model=config.REPLICATE_MODEL,
 )
 
-# Try to import OCR libraries at module level
+# ============================================================================
+# OCR INITIALIZATION - Try to import OCR libraries
+# ============================================================================
+TESSERACT_AVAILABLE = False
+EASYOCR_AVAILABLE = False
+_ocr_reader = None
+
+# Try Tesseract first
 try:
     import pytesseract
     from PIL import Image
+    
+    # Windows: Auto-detect Tesseract installation path
+    if os.name == 'nt':  # Windows
+        possible_paths = [
+            r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+            r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+            r'C:\Tesseract-OCR\tesseract.exe',
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                pytesseract.pytesseract.tesseract_cmd = path
+                logger.info(f"[OCR] Found Tesseract at: {path}")
+                break
+    
+    # Test if Tesseract actually works
+    pytesseract.get_tesseract_version()
     TESSERACT_AVAILABLE = True
-    logger.info("[OCR] Tesseract available - will use LOCAL OCR")
-except ImportError:
+    logger.info("[OCR] ✅ Tesseract available - will use LOCAL OCR")
+except Exception as e:
+    logger.warning(f"[OCR] ⚠️ Tesseract NOT available: {e}")
     TESSERACT_AVAILABLE = False
-    logger.warning("[OCR] Tesseract NOT available - will try EasyOCR")
-    try:
-        import easyocr
-        EASYOCR_AVAILABLE = True
-        logger.info("[OCR] EasyOCR available as fallback")
-        # Initialize reader once (expensive operation)
-        _ocr_reader = None
-    except ImportError:
-        EASYOCR_AVAILABLE = False
-        logger.error("[OCR] NEITHER Tesseract NOR EasyOCR available!")
+
+# Try EasyOCR as fallback
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+    logger.info("[OCR] ✅ EasyOCR available as fallback")
+except ImportError:
+    EASYOCR_AVAILABLE = False
+    logger.warning("[OCR] ⚠️ EasyOCR NOT available")
+
+# Final status
+if not TESSERACT_AVAILABLE and not EASYOCR_AVAILABLE:
+    logger.error("[OCR] ❌ NO OCR ENGINE AVAILABLE!")
+    logger.error("[OCR] Install Tesseract: https://github.com/UB-Mannheim/tesseract/wiki")
+    logger.error("[OCR] Or run: pip install easyocr")
 
 
 def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
@@ -146,24 +166,15 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
     
     text = (
         "📓 *Анализ документов*\n\n"
-        "Шаг 1★1★1 из 2: *Выберите тип анализа*\n\n"
+        "Шаг 1 из 2: *Выберите тип анализа*\n\n"
         f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
         "🔙 *ПОДДЕРЖИВАЕМЫЕ ФОРМАТЫ:*\n"
-        "• Word: .docx, **.doc** (СТАРЫЙ)\n"
-        "• Excel: .xlsx, **.xls** (СТАРЫЙ)\n"
-        "• ПДФ: PDF\n"
-        "• ТЕКСТ: TXT\n"
-        "• ФОТО: JPG, PNG (OCR текста)\n"
-        "• АРХИВЫ: ZIP\n\n"
-        "🌟 *ВсЕ форматы работают!*\n\n"
-        "🔙 *Как это работает:*\n"
-        "1★1★1 Выберите промпт\n"
-        "2★1★1 Отправьте документ (ANY FORMAT)\n"
-        "3★1★1 Получите результат\n\n"
-        "📄 *ОТПРАВТЕ ВЕЩЬ (ЛЮБОЕ):*\n"
-        "• .doc, .docx, .xls, .xlsx, .pdf, .txt\n"
-        "• Фото документа (jpg, png)\n"
-        "• ZIP архивы\n\n"
+        "• Word: .docx, .doc\n"
+        "• Excel: .xlsx, .xls\n"
+        "• PDF: .pdf\n"
+        "• Текст: .txt\n"
+        "• Фото: JPG, PNG (OCR)\n"
+        "• Архивы: ZIP\n\n"
         "👇 Выберите тип анализа:"
     )
     
@@ -208,7 +219,7 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
         f"✅ *Промпт выбран!*\n\n"
         f"📄 *Тип анализа:* `{prompt_name}`\n"
         f"_{prompt.description}_\n\n"
-        f"📂 *Шаг 2★1★1 из 2:* Отправьте документ\n\n"
+        f"📂 *Шаг 2 из 2:* Отправьте документ\n\n"
         f"🌟 *ПОДДЕРЖИВАЕМЫЕ:*\n"
         f".doc, .docx, .xls, .xlsx, .pdf, .txt, images (OCR), ZIP\n\n"
         f"📁 Отправьте ЛЮБОЙ файл!"
@@ -235,7 +246,7 @@ async def cb_back_to_prompts(query: CallbackQuery, state: FSMContext) -> None:
     
     text = (
         "📓 *Анализ документов*\n\n"
-        "Шаг 1★1★1 из 2: *Выберите тип анализа*\n\n"
+        "Шаг 1 из 2: *Выберите тип анализа*\n\n"
         f"📄 *Доступно: {len(prompts)} промптов*\n\n"
         "🌟 *ПОДДЕРЖИВАЕМЫЕ ФОРМАТЫ:*\n"
         ".doc, .docx, .xls, .xlsx, .pdf, .txt, images, ZIP\n\n"
@@ -343,7 +354,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
         
         # Extract text
         await status_msg.edit_text(
-            "🔍 Обрабатываю (вычисление текста)..."
+            "🔍 Обрабатываю (извлечение текста)..."
         )
         
         converter = FileConverter()
@@ -354,7 +365,7 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
                 "⚠️ Текст в документе не найден.\n\n"
                 "Если это изображение:\n"
                 "• Отправьте фото вместо документа\n\n"
-                "Если документ прустой:\n"
+                "Если документ пустой:\n"
                 "• Попробуйте другой файл"
             )
             await status_msg.delete()
@@ -655,7 +666,7 @@ async def _extract_text_from_photo_for_analysis(
     STRATEGY:
     1. Попытаемся Tesseract (быстро, бесплатно)
     2. Откатываемся на EasyOCR если нет Tesseract
-    3. Если ничего нет - всё равно дюжать текст уже...
+    3. Если ничего нет - возвращаем пустую строку
     
     Args:
         message: Message with photo
@@ -664,9 +675,11 @@ async def _extract_text_from_photo_for_analysis(
     Returns:
         Extracted text from photo
     """
+    global _ocr_reader
+    
     try:
         logger.info(f"[OCR] Starting extraction for user {message.from_user.id}")
-        logger.info(f"[OCR] Available: Tesseract={TESSERACT_AVAILABLE}, EasyOCR={EASYOCR_AVAILABLE if not TESSERACT_AVAILABLE else 'N/A'}")
+        logger.info(f"[OCR] Available: Tesseract={TESSERACT_AVAILABLE}, EasyOCR={EASYOCR_AVAILABLE}")
         
         # Get largest photo
         if not message.photo:
@@ -692,33 +705,30 @@ async def _extract_text_from_photo_for_analysis(
                 logger.info("[OCR] Attempting Tesseract extraction...")
                 image = Image.open(temp_file)
                 text = pytesseract.image_to_string(image, lang='rus+eng')
-                logger.info(f"[OCR] Tesseract: Successfully extracted {len(text)} chars")
+                logger.info(f"[OCR] ✅ Tesseract: Successfully extracted {len(text)} chars")
                 return text.strip()
             except Exception as e:
-                logger.warning(f"[OCR] Tesseract failed: {e}. Trying fallback...")
+                logger.warning(f"[OCR] Tesseract failed: {e}")
         
         # Fallback to EasyOCR (also LOCAL)
         if EASYOCR_AVAILABLE:
             try:
                 logger.info("[OCR] Attempting EasyOCR extraction...")
-                global _ocr_reader
                 if _ocr_reader is None:
-                    logger.info("[OCR] Initializing EasyOCR reader (first time, slow)...")
+                    logger.info("[OCR] Initializing EasyOCR reader (first time, may take a moment)...")
                     _ocr_reader = easyocr.Reader(['ru', 'en'])
                 
                 result = _ocr_reader.readtext(str(temp_file))
                 text = "\n".join([item[1] for item in result])
-                logger.info(f"[OCR] EasyOCR: Successfully extracted {len(text)} chars")
+                logger.info(f"[OCR] ✅ EasyOCR: Successfully extracted {len(text)} chars")
                 return text.strip()
             except Exception as e:
                 logger.warning(f"[OCR] EasyOCR failed: {e}")
         
-        # No OCR available - return empty string gracefully
-        logger.error("[OCR] NEITHER Tesseract NOR EasyOCR available!")
-        logger.error("[OCR] Install one of:")
-        logger.error("[OCR]   pip install pytesseract pillow")
-        logger.error("[OCR]   pip install easyocr")
-        logger.error("[OCR] For Windows: Also install Tesseract-OCR from https://github.com/UB-Mannheim/tesseract/wiki")
+        # No OCR available
+        logger.error("[OCR] ❌ NO OCR ENGINE AVAILABLE!")
+        logger.error("[OCR] Install Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki")
+        logger.error("[OCR] Or run: pip install easyocr")
         return ""
     
     except Exception as e:
