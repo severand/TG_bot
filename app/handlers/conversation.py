@@ -1,13 +1,13 @@
-"""Conversation mode handlers for interactive document analysis.
+"""Конверсацион моде хандлеры для анализа документов.
 
 UPDATED 2025-12-25 14:48:
 - Added user_id parameter to analyze_document calls
 - All logging now includes user context
 
 Fixes 2025-12-25 11:27:
-- АРХИТЕКТУРНАЯ ОПТИМизация: ЭКСПЛИЦИТНЫЕ state filters в декораторах
+- АРХИТЕКТУРНАЯ ОПТИМИзация: ЭКСПЛИЦИТНЫЕ state filters в декораторах
 - Обработчики срабатывают ТОЛЬКО когда пользователь В ConversationStates.ready
-- В других режимах (homework, prompts) документы обрабатываются специализированными обработчиками
+- В других режимах (домашка, промпты) документы обрабатываются специализированными обработчиками
 - НИКАКОГО конфликта между режимами вовле
 
 Фиксы 2025-12-21 14:16:
@@ -50,12 +50,12 @@ llm_factory = LLMFactory(
 
 
 def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Get keyboard with ONLY document analysis prompts - 2 buttons per row.
+    """Получить клавиатуру с ONLY документными анализ промптами - 2 кнопки в строке.
     
     КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Используем get_prompt_by_category() для получения
     ТОЛЬКО промптов категории "document_analysis", а НЕ всех промптов.
     """
-    # Загружаем промпты пользователя
+    # Лоадим промпты пользователя
     prompt_manager.load_user_prompts(user_id)
     
     # ИСПРАВЛЕНО: Получаем ТОЛЬКО промпты для документных промптов
@@ -83,15 +83,15 @@ def _get_prompts_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
 @router.message(Command("analyze"))
 async def cmd_analyze(message: Message, state: FSMContext) -> None:
-    """Activate document analysis mode - now with prompt selection."""
+    """Активировать режим анализа документов - теперь с выбором промпта."""
     logger.info(f"User {message.from_user.id} activated /analyze")
     await start_analyze_mode(message=message, state=state)
 
 
 async def start_analyze_mode(callback: CallbackQuery = None, message: Message = None, state: FSMContext = None) -> None:
-    """Start interactive document analysis mode.
+    """Начать интерактивный режим анализа документов.
     
-    NEW: Show prompt selection FIRST, then ask for document.
+    NEW: Показывать выбор промпта В ПЕРВЫХ, то вапросию для документа.
     ТОЛЬКО промпты для анализа документов!
     """
     if state is None:
@@ -114,15 +114,15 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
     
     text = (
         "📓 *Анализ документов*\n\n"
-        "Шаг 1⁅3⁅3⁅ из 2: *Выберите тип анализа*\n\n"
+        "Шаг 1★1★1 из 2: *Выберите тип анализа*\n\n"
         f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
         "🔙 *Как это работает:*\n"
-        "1⁅3⁅3 Выберите промпт (тип анализа)\n"
-        "2⁅3⁅3 Загрузите документ\n"
-        "3⁅3⁅3 Получите результат\n\n"
-        "✍̣ *Как отредактировать промпт:*\n"
+        "1★1★1 Выберите промпт (тип анализа)\n"
+        "2★1★1 Загружте документ\n"
+        "3★1★1 Получите результат\n\n"
+        "✍΃ *Как отредактировать промпт:*\n"
         "`/prompts` → Документы → [Выбрать] → Редактировать\n\n"
-        "👇 Ниже выберите тип анализа:"
+        "⬇️ Ниже выберите тип анализа:"
     )
     
     if message:
@@ -144,7 +144,7 @@ async def start_analyze_mode(callback: CallbackQuery = None, message: Message = 
 
 @router.callback_query(F.data.startswith("analyze_select_prompt_"))
 async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
-    """Handle prompt selection - move to document upload state."""
+    """Обработать выбор промпта - перейти в состояние загружки документа."""
     prompt_name = query.data.replace("analyze_select_prompt_", "")
     user_id = query.from_user.id
     
@@ -166,13 +166,13 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
         f"✅ *Промпт выбран!*\n\n"
         f"📄 *Тип анализа:* `{prompt_name}`\n"
         f"_{prompt.description}_\n\n"
-        f"📂 *Шаг 2⁅3⁅3 из 2:* Загрузите документ\n\n"
+        f"📂 *Шаг 2★1★1 из 2:* Загружте документ\n\n"
         f"📄 *Поддерживаемые форматы:*\n"
         f"• PDF, DOCX, TXT\n"
         f"• Excel (.xlsx, .xls)\n"
         f"• ZIP, DOC\n"
         f"• 📇 Фото\n\n"
-        f"✍̣ *Редактировать этот промпт?*\n"
+        f"✍΃ *Редактировать этот промпт?*\n"
         f"`/prompts` → Документы → `{prompt_name}` → Редактировать\n\n"
         f"📁 Готово? Отправьте документ!"
     )
@@ -190,7 +190,7 @@ async def cb_select_prompt(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "analyze_back_to_prompts")
 async def cb_back_to_prompts(query: CallbackQuery, state: FSMContext) -> None:
-    """Go back to prompt selection."""
+    """Вернуться к выбору промпта."""
     user_id = query.from_user.id
     
     # ИСПРАВЛЕНО: Получаем ТОЛЬКО документные промпты
@@ -198,9 +198,9 @@ async def cb_back_to_prompts(query: CallbackQuery, state: FSMContext) -> None:
     
     text = (
         "📓 *Анализ документов*\n\n"
-        "Шаг 1⁅3⁅3 из 2: *Выберите тип анализа*\n\n"
+        "Шаг 1★1★1 из 2: *Выберите тип анализа*\n\n"
         f"📄 *Доступно: {len(prompts)} промптов анализа*\n\n"
-        "✍̣ *Как отредактировать промпт:*\n"
+        "✍΃ *Как отредактировать промпт:*\n"
         "`/prompts` → Документы → [Выбрать] → Редактировать\n\n"
         "👇 Ниже выберите тип анализа:"
     )
@@ -216,7 +216,7 @@ async def cb_back_to_prompts(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "analyze_cancel")
 async def cb_analyze_cancel(query: CallbackQuery, state: FSMContext) -> None:
-    """Cancel analyze mode."""
+    """Отменить режим анализа."""
     await state.clear()
     
     text = "❌ *Отменено*\n\nВозвращаемся в режим диалога."
@@ -381,7 +381,7 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
     3. Никакие фото из других режимов сюда не попадут
     """
     if not message.photo:
-        await message.answer("❌ Фото не найдено")
+        await message.answer("❌ Фото не найден")
         return
     
     logger.info(f"User {message.from_user.id} uploading photo in analyze mode")
@@ -459,16 +459,63 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
             await CleanupManager.cleanup_directory_async(temp_user_dir)
 
 
+@router.message(ConversationStates.ready)
+async def handle_text_in_analyze_mode(message: Message, state: FSMContext) -> None:
+    """Handle text messages in analyze mode - treat as document content.
+    
+    IMPORTANT: This handler captures ANY message that isn't document/photo
+    in ConversationStates.ready state.
+    """
+    if not message.text:
+        await message.answer("❌ Поддерживаются только документы и фото")
+        return
+    
+    logger.info(f"User {message.from_user.id} sent text in analyze mode")
+    
+    # Treat text as document content
+    text_content = message.text.strip()
+    
+    if len(text_content) < 10:
+        await message.answer("⚠️ Текст слишком короткий. Отправьте документ.")
+        return
+    
+    # Show processing
+    status_msg = await message.answer(
+        "⏳ Анализирую...\n"
+        "Это может занять некоторое время..."
+    )
+    
+    try:
+        # Save to state
+        await state.update_data(
+            document_text=text_content,
+            document_name="text_input",
+            document_size=len(text_content),
+            user_id=message.from_user.id,
+        )
+        
+        # Get data from state
+        data = await state.get_data()
+        
+        # Perform analysis
+        await _perform_analysis(message, state, data, status_msg)
+    
+    except Exception as e:
+        logger.error(f"Error processing text: {e}")
+        await message.answer(f"❌ Ошибка: {str(e)[:80]}")
+        await status_msg.delete()
+
+
 async def _perform_analysis(
     message: Message, 
     state: FSMContext, 
     data: dict,
     status_msg: Message = None,
 ) -> None:
-    """Perform analysis with selected prompt. Auto-delete progress message after sending results.
+    """Провести анализ с выбранным промптом. Авто-делете сообщения прогресса после отправки результатов.
     
-    IMPORTANT: After analysis completes, returns user to chat mode (clears state).
-    This ensures they don't stay in analysis mode.
+    IMPORTANT: После завершения анализа, возвращает пользователя в режим чата (очищает состояние).
+    Это гарантирует, что они не остаются в режиме анализа.
     """
     document_text = data.get("document_text")
     document_name = data.get("document_name", "document")
@@ -575,7 +622,7 @@ async def _extract_text_from_photo_for_analysis(
     message: Message,
     temp_dir: Path,
 ) -> str:
-    """Extract text from photo using OCR.space cloud API.
+    """Извлечь текст из фото используя OCR.space cloud API.
     
     Args:
         message: Message with photo
@@ -689,7 +736,7 @@ async def _extract_text_from_photo_for_analysis(
 # Legacy callbacks - not used in new design
 @router.callback_query(F.data == "doc_clear")
 async def cb_doc_clear(query: CallbackQuery, state: FSMContext) -> None:
-    """Clear document (legacy)."""
+    """Очистить документ (legacy)."""
     await state.clear()
     await state.set_state(ConversationStates.ready)
     await query.message.answer("🗑️ Документ очищен. Загружайте новый.")
@@ -698,7 +745,7 @@ async def cb_doc_clear(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "doc_info")
 async def cb_doc_info(query: CallbackQuery, state: FSMContext) -> None:
-    """Show doc info (legacy)."""
+    """Показать инфо doc (legacy)."""
     data = await state.get_data()
     document_name = data.get("document_name", "Unknown")
     document_size = data.get("document_size", 0)
