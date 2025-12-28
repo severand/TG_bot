@@ -1,9 +1,14 @@
 """Обработчик проверки домашнего задания.
 
+UPDATED 2025-12-28 23:10:
+- REPLACED: OCR.space API → LOCAL Tesseract/EasyOCR
+- ADDED: Unified OCR Service
+- FIXED: JPG recognition now works reliably
+- IMPROVED: No SSL errors
+
 UPDATED 2025-12-25 14:45:
-- УДАЛЕНЫ дубли логирования
+- УДАЛЕНы дубли логирования
 - Все логирование теперь в replicate_client.py
-- See replicate_client.py for [LLM TEXT], [LLM SYSTEM PROMPT], [LLM USER PROMPT]
 
 Handles /homework command for checking student homework.
 """
@@ -27,6 +32,7 @@ from app.states.homework import HomeworkStates
 from app.services.homework import HomeworkChecker, SubjectCheckers, ResultVisualizer
 from app.services.llm.llm_factory import LLMFactory
 from app.services.file_processing import PDFParser, DOCXParser
+from app.services.ocr import OCRService, OCRQualityLevel
 from app.services.prompts.prompt_manager import PromptManager
 from app.config import get_settings
 
@@ -35,6 +41,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 prompt_manager = PromptManager()
 config = get_settings()
+ocr_service = OCRService()
 
 # Initialize LLMFactory once
 llm_factory = LLMFactory(
@@ -94,7 +101,7 @@ async def start_homework(
             "📖 <b>Проверка домашнего задания</b>\n\n"
             "Выбери предмет для проверки:\n\n"
             "✍️ <i>Где редактировать промпты:</i>\n"
-            "<code>/prompts</code> → Домашка → [Предмет] → Редактировать"
+            "<code>/prompts</code> → Домашка → [Предмет] → Недиктировать"
         ),
         reply_markup=get_subjects_keyboard(),
         parse_mode="HTML"
@@ -137,8 +144,8 @@ async def select_subject(
             f"• Текст с решением\n"
             f"• Фото (текст распознается автоматически)\n"
             f"• PDF или DOCX файл\n\n"
-            f"✍️ <i>Редактировать промпт для этого предмета:</i>\n"
-            f"<code>/prompts</code> → Домашка → {subject.name} → Редактировать"
+            f"✍️ <i>Оредактировать промпт для этого предмета:</i>\n"
+            f"<code>/prompts</code> → Домашка → {subject.name} → Недиктировать"
         ),
         parse_mode="HTML",
         reply_markup=None
@@ -158,7 +165,7 @@ async def process_homework_file(
     message: Message,
     state: FSMContext
 ) -> None:
-    """Обработка домашки.
+    """Обработка домашки с unified OCR.
     
     Args:
         message: User message with file
@@ -173,15 +180,15 @@ async def process_homework_file(
     processing_msg = await message.answer(
         text=(
             "🔄 Обрабатываю...\n"
-            "📄 снимаю текст...\n"
+            "📄 Нимаю текст...\n"
             "🤖 анализирую ответы...\n\n"
             "✍️ Подсказка: промпты для проверки можно изменить в меню:\n"
-            "`/prompts` → Домашка → [Предмет] → Редактировать`"
+            "`/prompts` → Домашка → [Предмет] → Недиктировать`"
         )
     )
     
     try:
-        content = await _extract_content(message)
+        content = await _extract_content(message, user_id)
         
         if not content or not content.strip():
             await processing_msg.edit_text(
@@ -227,7 +234,7 @@ async def process_homework_file(
         result_text += (
             "\n\n"
             "✍️ Подсказка: текст проверки можно изменить в меню\n"
-            "`/prompts` → Домашка → [Предмет] → Редактировать`"
+            "`/prompts` → Домашка → [Предмет] → Недиктировать`"
         )
         
         await processing_msg.edit_text(text=result_text)
@@ -240,25 +247,23 @@ async def process_homework_file(
     await state.clear()
 
 
-async def _extract_content(message: Message) -> str:
-    """Extract content from message."""
+async def _extract_content(message: Message, user_id: int) -> str:
+    """Extract content from message using unified OCR."""
     if message.text:
         return message.text
     
     if message.photo:
-        return await _extract_text_from_photo(message)
+        return await _extract_text_from_photo(message, user_id)
     
     if message.document:
-        return await _extract_text_from_document(message)
+        return await _extract_text_from_document(message, user_id)
     
     raise ValueError("Неподдерживаемый тип")
 
 
-async def _extract_text_from_photo(message: Message) -> str:
-    """Extract text from photo using OCR.space API."""
+async def _extract_text_from_photo(message: Message, user_id: int) -> str:
+    """Extract text from photo using unified OCR service."""
     try:
-        import httpx
-        
         settings = get_settings()
         
         photo = message.photo[-1]
@@ -271,74 +276,20 @@ async def _extract_text_from_photo(message: Message) -> str:
         await message.bot.download_file(file_info.file_path, temp_file)
         
         try:
-            with open(temp_file, "rb") as f:
-                photo_bytes = f.read()
+            # Use unified OCR service (LOCAL Tesseract, no API)
+            extracted_text, quality = await ocr_service.extract_from_file(temp_file, user_id)
             
-            photo_base64 = base64.b64encode(photo_bytes).decode("utf-8")
-            logger.info(f"OCR: Photo base64 prepared ({len(photo_bytes)} bytes)")
+            logger.info(
+                f"[OCR QUALITY] User {user_id} (homework): {quality.value} | "
+                f"{len(extracted_text)} chars, {len(extracted_text.split())} words"
+            )
             
-            # Try 2 times with 60s timeout
-            for attempt in range(1, 3):
-                try:
-                    logger.info(f"OCR: Attempt {attempt}/2 (timeout 60s)")
-                    
-                    async with httpx.AsyncClient() as client:
-                        response = await asyncio.wait_for(
-                            client.post(
-                                "https://api.ocr.space/parse/image",
-                                data={
-                                    "apikey": settings.OCR_SPACE_API_KEY,
-                                    "base64Image": f"data:image/jpeg;base64,{photo_base64}",
-                                    "language": "rus",
-                                    "isOverlayRequired": False,
-                                    "detectOrientation": True,
-                                    "scale": True,
-                                    "OCREngine": 2,
-                                },
-                            ),
-                            timeout=60.0,
-                        )
-                        
-                        if response.status_code != 200:
-                            logger.error(f"OCR: API error {response.status_code}")
-                            if attempt == 2:
-                                return ""
-                            continue
-                        
-                        result = response.json()
-                        logger.info(f"OCR: API response received")
-                        
-                        if result.get("IsErroredOnProcessing"):
-                            error_msg = result.get("ErrorMessage", "Unknown")
-                            logger.error(f"OCR: Processing error: {error_msg}")
-                            if attempt == 2:
-                                return ""
-                            continue
-                        
-                        parsed_results = result.get("ParsedResults", [])
-                        if not parsed_results:
-                            logger.warning(f"OCR: No text detected")
-                            if attempt == 2:
-                                return ""
-                            continue
-                        
-                        text = parsed_results[0].get("ParsedText", "")
-                        logger.info(f"OCR: Success on attempt {attempt}: {len(text)} chars extracted")
-                        return text.strip()
-                
-                except asyncio.TimeoutError:
-                    logger.warning(f"OCR: Timeout on attempt {attempt}/2, retrying...")
-                    if attempt == 2:
-                        logger.error(f"OCR: Timeout on both attempts")
-                        return ""
-                    await asyncio.sleep(1)
-                    continue
-                except Exception as e:
-                    logger.error(f"OCR: Error on attempt {attempt}: {type(e).__name__}: {str(e)[:100]}")
-                    if attempt == 2:
-                        return ""
-                    await asyncio.sleep(1)
-                    continue
+            if quality == OCRQualityLevel.POOR:
+                logger.warning(
+                    f"[OCR] User {user_id}: Low quality homework OCR"
+                )
+            
+            return extracted_text
         
         finally:
             if temp_file.exists():
@@ -349,7 +300,7 @@ async def _extract_text_from_photo(message: Message) -> str:
         return ""
 
 
-async def _extract_text_from_document(message: Message) -> str:
+async def _extract_text_from_document(message: Message, user_id: int) -> str:
     """Extract text from document file."""
     settings = get_settings()
     temp_dir = Path(settings.TEMP_DIR)
