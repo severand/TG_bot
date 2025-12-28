@@ -7,6 +7,11 @@ POLNAYA PODDERZHKA:
 - Text: .txt
 - Images: .jpg, .png (OCR - LOCAL TESSERACT)
 
+UPDATED 2025-12-28 22:49:
+- ADDED: OCR text preview (first 300 chars) before analysis
+- User can see EXACTLY what OCR extracted
+- Better UX - no mystery what got recognized
+
 UPDATED 2025-12-28 22:35:
 - FIXED: EASYOCR_AVAILABLE variable always defined
 - FIXED: Auto-detect Tesseract path on Windows
@@ -388,10 +393,21 @@ async def handle_document_upload(message: Message, state: FSMContext) -> None:
             f"{len(extracted_text)} chars"
         )
         
-        # Update status message with analysis start
+        # Show preview of extracted text
+        preview_length = 300
+        preview_text = extracted_text[:preview_length]
+        if len(extracted_text) > preview_length:
+            preview_text += "...\n\n[текст обрезан]"
+        
         await status_msg.edit_text(
-            f"⏳ Анализирую с промптом '{selected_prompt_name}'...\n"
-            "Это может занять некоторое время..."
+            f"✅ *Текст извлечен успешно!*\n\n"
+            f"📊 *Статистика:*\n"
+            f"• Всего символов: {len(extracted_text):,}\n"
+            f"• Тип анализа: `{selected_prompt_name}`\n\n"
+            f"👀 *Превью извлеченного текста:*\n\n"
+            f"```\n{preview_text}\n```\n\n"
+            f"⏳ Анализирую документ...",
+            parse_mode="Markdown",
         )
         
         # Immediately start analysis with selected prompt
@@ -480,10 +496,22 @@ async def handle_photo_upload(message: Message, state: FSMContext) -> None:
             f"Photo loaded for user {message.from_user.id}: {len(extracted_text)} chars"
         )
         
+        # Show preview of extracted text
+        preview_length = 300
+        preview_text = extracted_text[:preview_length]
+        if len(extracted_text) > preview_length:
+            preview_text += "...\n\n[текст обрезан]"
+        
         # Update status message with analysis start
         await status_msg.edit_text(
-            f"⏳ Анализирую с промптом '{selected_prompt_name}'...\n"
-            "Это может занять некоторое время..."
+            f"✅ *Текст распознан (OCR)!*\n\n"
+            f"📊 *Статистика:*\n"
+            f"• Всего символов: {len(extracted_text):,}\n"
+            f"• Тип анализа: `{selected_prompt_name}`\n\n"
+            f"👀 *Превью распознанного текста:*\n\n"
+            f"```\n{preview_text}\n```\n\n"
+            f"⏳ Анализирую документ...",
+            parse_mode="Markdown",
         )
         
         # Immediately start analysis with selected prompt
