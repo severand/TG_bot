@@ -10,13 +10,11 @@ aiofiles>=23.0.0
 httpx>=0.21.0
 
 # Document format support
-# Дата исправления: 2025-12-28 19:39
-# ПОЛНАЯ ПОДДЕРЖКА: Все форматы документов
+# Дата исправления: 2025-12-28 19:42
+# ОСНОВНАЯ ПОДДЕРЖКА: DOCX, PDF, XLSX (современные форматы)
+# ЛЕГАСИ: .doc и .xls требуют ручной установки
 
-# .doc parser (Python library, no system deps)
-aspose-words>=23.0.0
-
-# Word documents (.docx)
+# Word documents (.docx) - ОСНОВНОЙ ФОРМАТ
 python-docx>=1.0.0
 
 # PDF documents
@@ -26,9 +24,9 @@ pdf2image>=1.16.0
 # PowerPoint documents
 python-pptx>=0.6.21
 
-# Excel/XLS support - CRITICAL for .xls files
+# Excel/XLSX support - ОСНОВНОЙ ФОРМАТ
 openpyxl>=3.0.10
-xlrd>=2.0.0
+# xlrd>=2.0.0  # Для .xls (опционально, установить вручную: pip install xlrd)
 
 # OCR dependencies
 pytesseract>=0.3.10
@@ -36,3 +34,8 @@ Pillow>=10.0.0
 
 # Encoding detection (fallback)
 chardet>=5.0.0
+
+# ПРИМЕЧАНИЕ: Для поддержки ЛЕГАСИ форматов:
+# .doc -> pip install aspose-words (коммерческая библиотека)
+# .xls -> pip install xlrd
+# Эти зависимости опциональны и могут вызывать SSL ошибки при установке
