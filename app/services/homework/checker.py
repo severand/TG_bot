@@ -11,10 +11,9 @@ based on subject-specific criteria.
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from dataclasses import dataclass
 
-from app.services.llm.replicate_client import ReplicateClient
 from app.services.homework.rubric import SUBJECT_RUBRICS, GradingRubric
 
 logger = logging.getLogger(__name__)
@@ -37,11 +36,11 @@ class HomeworkResult:
 class HomeworkChecker:
     """Checks homework using LLM."""
     
-    def __init__(self, llm_service: ReplicateClient):
+    def __init__(self, llm_service):
         """Initialize checker.
         
         Args:
-            llm_service: LLM service for evaluation
+            llm_service: LLM service for evaluation (LLMFactory or ReplicateClient)
         """
         self.llm = llm_service
     
