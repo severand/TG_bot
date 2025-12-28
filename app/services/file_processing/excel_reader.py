@@ -112,8 +112,13 @@ def _read_workbook_sheets(zf: zipfile.ZipFile):
 def _read_sheet(zf: zipfile.ZipFile, sheet_path: str, shared_strings):
     """Read a sheet and return list of rows (list of lists)."""
     rows = []
-    with zf.open(sheet_path) as f:
-        root = ET.parse(f).getroot()
+    try:
+        with zf.open(sheet_path) as f:
+            root = ET.parse(f).getroot()
+    except KeyError as e:
+        logger.warning(f"Sheet path not found in archive: {sheet_path}. Error: {e}")
+        return rows
+    
     for row in root.findall(".//main:sheetData/main:row", _NS):
         cells_by_col = {}
         max_col = 0
@@ -156,7 +161,7 @@ def _read_sheet(zf: zipfile.ZipFile, sheet_path: str, shared_strings):
                     else:
                         txt = v_node.text
                         try:
-                            value = float(txt) if (("." in txt) or ("e" in txt) or ("E" in txt)) else int(txt)
+                            value = float(txt) if ((".".in txt) or ("e" in txt) or ("E" in txt)) else int(txt)
                         except ValueError:
                             value = txt
                 else:
@@ -178,17 +183,27 @@ def _read_sheet(zf: zipfile.ZipFile, sheet_path: str, shared_strings):
 def read_xlsx(path: str):
     """Read .xlsx file and return dict: sheet_name -> list[list[values]]."""
     logger.info(f"Reading .xlsx: {Path(path).name}")
-    with zipfile.ZipFile(path) as zf:
-        shared = _read_shared_strings(zf)
-        sheets = _read_workbook_sheets(zf)
-        out = {}
-        for name, spath in sheets:
-            if not spath:
-                continue
-            logger.info(f"  Sheet: {name}")
-            out[name] = _read_sheet(zf, spath, shared)
-        logger.info(f"Successfully read {len(out)} sheets")
-        return out
+    try:
+        with zipfile.ZipFile(path) as zf:
+            shared = _read_shared_strings(zf)
+            sheets = _read_workbook_sheets(zf)
+            logger.debug(f"Found {len(sheets)} sheets in workbook")
+            out = {}
+            for name, spath in sheets:
+                if not spath:
+                    logger.warning(f"Sheet '{name}' has no valid path, skipping")
+                    continue
+                logger.debug(f"  Reading sheet: {name} from {spath}")
+                out[name] = _read_sheet(zf, spath, shared)
+                logger.info(f"  Sheet '{name}': {len(out[name])} rows extracted")
+            logger.info(f"Successfully read {len(out)} sheets from {Path(path).name}")
+            return out
+    except zipfile.BadZipFile as e:
+        logger.error(f"File is not a valid ZIP/XLSX: {e}")
+        raise ValueError(f"Invalid XLSX file: {Path(path).name}") from e
+    except Exception as e:
+        logger.error(f"Error reading XLSX: {e}", exc_info=True)
+        raise
 
 
 def _convert_xls_via_excel_com(xls_path: str, out_xlsx_path: str):
@@ -196,6 +211,8 @@ def _convert_xls_via_excel_com(xls_path: str, out_xlsx_path: str):
     logger.info(f"Attempting .xls conversion via Excel COM")
     xls_full = str(Path(xls_path).resolve())
     out_full = str(Path(out_xlsx_path).resolve())
+    logger.debug(f"  Source: {xls_full}")
+    logger.debug(f"  Output: {out_full}")
     ps = rf"""
 $ErrorActionPreference = 'Stop'
 $excel = New-Object -ComObject Excel.Application
@@ -217,17 +234,23 @@ try {{
             timeout=120
         )
         if result.returncode != 0:
-            logger.error(f"PowerShell Excel COM failed: {result.stderr}")
-            raise RuntimeError(f"PowerShell Excel COM failed: {result.stderr.strip()}")
+            error_msg = result.stderr.strip()
+            logger.error(f"PowerShell Excel COM failed (code {result.returncode}): {error_msg}")
+            raise RuntimeError(f"PowerShell Excel COM failed: {error_msg}")
         logger.info("Excel COM conversion successful")
     except FileNotFoundError:
-        logger.warning("powershell not found")
+        logger.warning("powershell not found on system")
         raise RuntimeError("PowerShell not available")
+    except subprocess.TimeoutExpired:
+        logger.error("Excel COM conversion timed out (120s)")
+        raise RuntimeError("Excel COM conversion timeout")
 
 
 def _convert_xls_via_libreoffice(xls_path: str, out_dir: str):
     """Convert .xls to .xlsx using LibreOffice soffice command."""
-    logger.info(f"Attempting .xls conversion via LibreOffice")
+    logger.info(f"Attempting .xls conversion via LibreOffice soffice")
+    logger.debug(f"  Source: {xls_path}")
+    logger.debug(f"  Output dir: {out_dir}")
     try:
         result = subprocess.run(
             ["soffice", "--headless", "--convert-to", "xlsx", "--outdir", out_dir, xls_path],
@@ -236,42 +259,63 @@ def _convert_xls_via_libreoffice(xls_path: str, out_dir: str):
             timeout=120
         )
         if result.returncode != 0:
-            logger.error(f"LibreOffice conversion failed: {result.stderr}")
-            raise RuntimeError(f"LibreOffice conversion failed: {result.stderr.strip()}")
+            error_msg = result.stderr.strip()
+            logger.error(f"LibreOffice conversion failed (code {result.returncode}): {error_msg}")
+            raise RuntimeError(f"LibreOffice conversion failed: {error_msg}")
         logger.info("LibreOffice conversion successful")
     except FileNotFoundError:
         logger.warning("soffice not found in PATH")
         raise RuntimeError("LibreOffice soffice not available")
+    except subprocess.TimeoutExpired:
+        logger.error("LibreOffice conversion timed out (120s)")
+        raise RuntimeError("LibreOffice conversion timeout")
 
 
 def convert_xls_to_xlsx(xls_path: str) -> str:
     """Convert .xls to .xlsx.
     
     Tries Excel COM first (Windows+Excel), then LibreOffice (any platform).
+    Returns path to converted .xlsx file.
+    
+    IMPORTANT: Caller is responsible for cleanup of temp directory.
+    
     Raises RuntimeError if neither available.
     """
     logger.info(f"Converting .xls to .xlsx: {Path(xls_path).name}")
     tmp_dir = tempfile.mkdtemp(prefix="xls2xlsx_")
+    logger.debug(f"Created temp directory: {tmp_dir}")
     out_path = os.path.join(tmp_dir, Path(xls_path).stem + ".xlsx")
+    
     # Try Excel COM first
     try:
         _convert_xls_via_excel_com(xls_path, out_path)
-        if os.path.exists(out_path):
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
             logger.info(f"Conversion successful: {out_path}")
             return out_path
+        else:
+            logger.warning(f"Excel COM output file not created or empty: {out_path}")
     except Exception as e:
         logger.debug(f"Excel COM failed: {e}")
+    
     # Try LibreOffice
     try:
         _convert_xls_via_libreoffice(xls_path, tmp_dir)
         cand = os.path.join(tmp_dir, Path(xls_path).stem + ".xlsx")
-        if os.path.exists(cand):
+        if os.path.exists(cand) and os.path.getsize(cand) > 0:
             logger.info(f"Conversion successful: {cand}")
             return cand
+        else:
+            logger.warning(f"LibreOffice output file not created or empty: {cand}")
     except Exception as e:
         logger.debug(f"LibreOffice failed: {e}")
-    # Both failed
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+    
+    # Both failed - cleanup and raise
+    try:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        logger.debug(f"Cleaned up temp directory: {tmp_dir}")
+    except Exception as e:
+        logger.warning(f"Could not cleanup temp dir {tmp_dir}: {e}")
+    
     error_msg = (
         "Cannot convert .xls to .xlsx.\n"
         "Options:\n"
@@ -293,22 +337,34 @@ def extract_spreadsheet(path: str):
         dict: sheet_name -> list of rows (list[list[cell_values]])
         
     Raises:
-        ValueError: Unsupported file format
+        ValueError: Unsupported file format or file is corrupted
         RuntimeError: .xls conversion failed (no Excel/LibreOffice available)
     """
     path = str(path)
     ext = Path(path).suffix.lower()
+    
     if ext == ".xlsx":
+        logger.debug(f"Processing .xlsx file (modern format): {Path(path).name}")
         return read_xlsx(path)
+    
     if ext == ".xls":
         logger.info(f"Processing .xls file (legacy Excel format): {Path(path).name}")
         xlsx_path = convert_xls_to_xlsx(path)
+        tmp_dir = Path(xlsx_path).parent
+        
         try:
-            return read_xlsx(xlsx_path)
+            result = read_xlsx(xlsx_path)
+            logger.info(f"Successfully extracted data from converted XLS file")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to read converted XLSX: {e}")
+            raise
         finally:
-            # Clean up temp directory after conversion
+            # Clean up temp directory after successful or failed conversion
             try:
-                shutil.rmtree(Path(xlsx_path).parent, ignore_errors=True)
-            except Exception:
-                pass
+                shutil.rmtree(str(tmp_dir), ignore_errors=True)
+                logger.debug(f"Cleaned up temp directory: {tmp_dir}")
+            except Exception as e:
+                logger.warning(f"Could not cleanup temp dir {tmp_dir}: {e}")
+    
     raise ValueError(f"Unsupported file format: {ext}. Expected .xls or .xlsx")
