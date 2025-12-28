@@ -10,8 +10,8 @@ aiofiles>=23.0.0
 httpx>=0.21.0
 
 # Document format support
-# Дата исправления: 2025-12-21 13:50
-# ОКОНЧАТЕЛЬНОЕ: Aspose.Words для .doc (без LibreOffice/Antiword)
+# Дата исправления: 2025-12-28 19:39
+# ПОЛНАЯ ПОДДЕРЖКА: Все форматы документов
 
 # .doc parser (Python library, no system deps)
 aspose-words>=23.0.0
@@ -26,7 +26,7 @@ pdf2image>=1.16.0
 # PowerPoint documents
 python-pptx>=0.6.21
 
-# Excel/XLS support
+# Excel/XLS support - CRITICAL for .xls files
 openpyxl>=3.0.10
 xlrd>=2.0.0
 
